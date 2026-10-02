@@ -217,7 +217,6 @@ esp_err_t bsp_p4_init_hardware(bsp_p4_handles_t *handles)
             .dsi_bus    = dsi_bus,
             .dpi_config = &dpi_cfg,
         },
-        .flags.use_mipi_interface = 1,
     };
 
     esp_lcd_panel_dev_config_t lcd_cfg = {
@@ -332,14 +331,10 @@ esp_codec_dev_handle_t bsp_audio_codec_speaker_init(void)
     es8388_codec_cfg_t es8388_cfg = {
         .ctrl_if      = ctrl_if,
         .gpio_if      = gpio_if,
-        .codec_mode   = ESP_CODEC_DEV_TYPE_OUT,
+        .codec_mode   = ESP_CODEC_DEV_WORK_MODE_DAC,
         .pa_pin       = GPIO_NUM_NC,
         .pa_reverted  = false,
         .master_mode  = false,
-        .use_mclk     = true,
-        .digital_mic  = false,
-        .invert_mclk  = false,
-        .invert_sclk  = false,
         .hw_gain      = {.pa_voltage = 5.0f, .codec_dac_voltage = 3.3f},
     };
     const audio_codec_if_t *codec_if = es8388_codec_new(&es8388_cfg);

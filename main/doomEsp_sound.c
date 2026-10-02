@@ -1,5 +1,6 @@
 #include "doomEsp_sound.h"
 #include "esp_log.h"
+#include <string.h>
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -211,7 +212,7 @@ music_module_t DG_music_module = {
 // Hardware Initialization
 // ----------------------------------------------------
 void doomEsp_SoundInit(void) {
-    ESP_LOGI(TAG, "Configuring ES8311 Codec and I2S for DOOM...");
+    ESP_LOGI(TAG, "Configuring ES8388 Codec and I2S for DOOM...");
     
     // bsp_audio_init will initialize I2S interface in EV-Board
     bsp_audio_init(NULL);
