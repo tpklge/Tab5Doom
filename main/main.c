@@ -3,7 +3,7 @@
  * @brief Base ESP32-P4 application Launcher
  */
 
-#include "bsp_p4_eval.h"
+#include "bsp_tab5.h"
 #include "doomEsp.h"
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_log.h"

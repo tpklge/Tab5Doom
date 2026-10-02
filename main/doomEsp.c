@@ -17,6 +17,14 @@
 #include <string.h>
 #include <unistd.h>
 
+/* Tab5 display is 720×1280 portrait.  We scale DOOM 320×200 uniformly so
+ * it fits the width (scale = 720/320 = 2.25 → output 720×450) and centre
+ * it vertically with black letterbox bars.  Computed once at startup. */
+static int   g_scaled_w;
+static int   g_scaled_h;
+static int   g_out_x;
+static int   g_out_y;
+
 static const char *TAG = "DOOM_ESP";
 
 char doomEsp_savedir[32] = "/spiffs";
@@ -32,30 +40,31 @@ static bsp_p4_handles_t g_bsp_handles;
 
 // Draw hook for doomgeneric
 void p4_doom_draw_frame(const uint32_t *buffer) {
-  // Directly copy the native RGB565 buffer requested from doomgeneric
   memcpy(doom_rb565, buffer, DOOM_W * DOOM_H * 2);
-
   esp_cache_msync(doom_rb565, DOOM_W * DOOM_H * 2,
                   ESP_CACHE_MSYNC_FLAG_DIR_C2M);
 
-  float scale_x = (float)LCD_H_RES / (float)DOOM_W;
-  float scale_y = (float)LCD_V_RES / (float)DOOM_H;
+  /* Uniform scale with letterbox: DOOM 320×200 → g_scaled_w×g_scaled_h,
+   * centred in the LCD_H_RES×LCD_V_RES portrait framebuffer. */
+  float scale = (float)g_scaled_w / (float)DOOM_W;
 
   ppa_srm_oper_config_t srm_config = {
-      .in = {.buffer = doom_rb565,
-             .pic_w = DOOM_W,
-             .pic_h = DOOM_H,
+      .in = {.buffer  = doom_rb565,
+             .pic_w   = DOOM_W,
+             .pic_h   = DOOM_H,
              .block_w = DOOM_W,
              .block_h = DOOM_H,
-             .srm_cm = PPA_SRM_COLOR_MODE_RGB565},
-      .out = {.buffer = global_frame_buffer,
-              .buffer_size = LCD_H_RES * LCD_V_RES * 2,
-              .pic_w = LCD_H_RES,
-              .pic_h = LCD_V_RES,
-              .srm_cm = PPA_SRM_COLOR_MODE_RGB565},
+             .srm_cm  = PPA_SRM_COLOR_MODE_RGB565},
+      .out = {.buffer          = global_frame_buffer,
+              .buffer_size     = LCD_H_RES * LCD_V_RES * 2,
+              .pic_w           = LCD_H_RES,
+              .pic_h           = LCD_V_RES,
+              .block_offset_x  = g_out_x,
+              .block_offset_y  = g_out_y,
+              .srm_cm          = PPA_SRM_COLOR_MODE_RGB565},
       .rotation_angle = PPA_SRM_ROTATION_ANGLE_0,
-      .scale_x = scale_x,
-      .scale_y = scale_y,
+      .scale_x = scale,
+      .scale_y = scale,
   };
 
   ppa_do_scale_rotate_mirror(ppa_client, &srm_config);
@@ -243,6 +252,23 @@ void doomEsp_Start(bsp_p4_handles_t bsp_handles, uint16_t *frame_buffer) {
 
   global_frame_buffer = frame_buffer;
   g_bsp_handles = bsp_handles;
+
+  /* Compute uniform scale and letterbox offsets for portrait display. */
+  {
+    float sx = (float)LCD_H_RES / (float)DOOM_W;
+    float sy = (float)LCD_V_RES / (float)DOOM_H;
+    float scale = (sx < sy) ? sx : sy;
+    g_scaled_w = (int)(DOOM_W * scale);
+    g_scaled_h = (int)(DOOM_H * scale);
+    g_out_x = (LCD_H_RES - g_scaled_w) / 2;
+    g_out_y = (LCD_V_RES - g_scaled_h) / 2;
+    ESP_LOGI(TAG, "Display %dx%d | DOOM scaled to %dx%d at offset (%d,%d)",
+             LCD_H_RES, LCD_V_RES, g_scaled_w, g_scaled_h, g_out_x, g_out_y);
+  }
+  /* Fill entire framebuffer with black so letterbox areas stay dark. */
+  memset(global_frame_buffer, 0, LCD_H_RES * LCD_V_RES * 2);
+  esp_cache_msync(global_frame_buffer, LCD_H_RES * LCD_V_RES * 2,
+                  ESP_CACHE_MSYNC_FLAG_DIR_C2M);
 
   // 0. Keyboard Queue
   doom_key_queue = xQueueCreate(32, sizeof(doom_key_event_t));
