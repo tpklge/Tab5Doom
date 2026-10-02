@@ -608,7 +608,8 @@ void S_ChangeMusic(int musicnum, int looping)
     // and d_introa.  The latter is used for OPL playback.
 
     if (musicnum == mus_intro && (snd_musicdevice == SNDDEVICE_ADLIB
-                               || snd_musicdevice == SNDDEVICE_SB))
+                               || snd_musicdevice == SNDDEVICE_SB)
+        && W_CheckNumForName(DEH_String("D_INTROA")) >= 0)
     {
         musicnum = mus_introa;
     }
@@ -667,4 +668,3 @@ void S_StopMusic(void)
         mus_playing = NULL;
     }
 }
-

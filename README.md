@@ -1,3 +1,69 @@
+# Tab5Doom — M5Stack Tab5
+
+Este aparelho usa o display **ST7123**, identificado pela versão 3 do controlador
+integrado em I2C `0x55`. O reset do touch usa P6 do expansor `0x43`; o LCD P4 é
+liberado como entrada com pull-up. A sequência ST7123 completa e os timings
+965 Mbps / DPI 70 MHz substituem a tentativa anterior com ST7703.
+
+O DOOM usa a tela em paisagem, com rotação de 90° pelo PPA e proporção preservada.
+O teclado original **Tab5 Keyboard** conecta à **Ext.Port1**, em I2C `0x6D`
+(SDA GPIO0, SCL GPIO1). Controles:
+
+- **WASD ou setas:** andar e girar.
+- **Ctrl:** atirar. **E ou Espaço:** usar/abrir portas.
+- **Aa:** correr. **Alt + direção:** deslocamento lateral.
+- **Enter:** confirmar. **Esc:** menu. **1–7:** selecionar armas.
+
+O SPIFFS contém `DOOM.WAD` completo com os três episódios. A tabela de
+partições reserva 2 MiB para o aplicativo e o restante da flash de 16 MiB
+para o SPIFFS em `0x210000`. O carregador aceita nomes de WAD maiúsculos e
+minúsculos; há compatibilidade com a barra de status, demos e recursos de menu
+dessa edição antiga. O WAD é copiado para PSRAM na inicialização (cerca de cinco
+segundos) para evitar leituras aleatórias lentas do SPIFFS durante o jogo.
+
+Para carregar pelo microSD, coloque o WAD em **`/doom/DOOM.WAD`** no cartão.
+Use FAT32. A busca prioriza a pasta `/doom`, depois a raiz do cartão e por último
+o SPIFFS. Em cada local, a ordem é `doom2.wad`, `doom.wad`, `doom1.wad`,
+aceitando também nomes maiúsculos. Quando o WAD está em `/doom`, configurações
+e saves também ficam nessa pasta. O mod opcional `chiquito.wad` deve ficar
+junto do WAD escolhido. O serial informa o caminho selecionado.
+
+O mixer implementa efeitos sonoros a 11025 Hz; música ainda não é sintetizada.
+Os efeitos no alto-falante e a entrada na fase foram confirmados no aparelho.
+O amplificador usa P1 do expansor `0x43` em push-pull; o padrão de alta
+impedância impedia sua ativação. A inicialização inclui um tom curto de teste.
+
+O serial mostra detecção do teclado e FPS/tempo de PPA a cada cinco segundos.
+O touch ST7123 ainda não está implementado como controle do jogo.
+Histórico de testes e resultados: `TAB5DOOM_PROGRESS.txt` e
+`TAB5DOOM_DISPLAY_INIT_HISTORY.txt`. Logs de diagnóstico ficam em `.debug_logs/`.
+
+Compilar e gravar com ESP-IDF 5.4.4; após cada flash, acompanhar o serial:
+
+```sh
+idf.py -p /dev/cu.usbmodem101 build flash monitor
+```
+
+Esse comando também grava o WAD do diretório `spiffs`. Para usar somente o
+microSD e deixar o SPIFFS apagado, após compilar execute:
+
+```sh
+esptool.py --chip esp32p4 -p /dev/cu.usbmodem101 erase_flash
+esptool.py --chip esp32p4 -p /dev/cu.usbmodem101 write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB 0x2000 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0x10000 build/Tab5Doom.bin
+idf.py -p /dev/cu.usbmodem101 monitor
+```
+
+O apagamento remove também o NVS. Com o firmware validado, a partição SPIFFS
+fica com **13,94 MiB vazios**, e o aplicativo tem **1,13 MiB de folga** dentro
+de sua partição. SPIFFS apagado não monta até receber uma imagem ou ser formatado;
+o jogo continua carregando do microSD.
+
+O driver ST7123 local deriva do driver Apache-2.0 da Espressif, com a tabela de
+inicialização do BSP M5Stack. O mapeamento do teclado deriva do
+[M5Unit-KEYBOARD](https://github.com/m5stack/M5Unit-KEYBOARD) (MIT).
+
+---
+
 # ESP32P4Doom
 ![ESP32-P4](https://img.shields.io/badge/Platform-ESP32--P4-red.svg)
 ![DOOM](https://img.shields.io/badge/Port-DOOM-orange.svg)

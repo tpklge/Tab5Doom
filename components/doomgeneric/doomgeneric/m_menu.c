@@ -2022,7 +2022,12 @@ void M_Drawer (void)
 
 	if (name[0])
 	{
-	    V_DrawPatchDirect (x, y, W_CacheLumpName(name, PU_CACHE));
+            // The earliest registered IWAD predates the Nightmare menu patch.
+            if (!strcmp(name, DEH_String("M_NMARE"))
+                && W_CheckNumForName(name) < 0)
+                M_WriteText(x, y, "NIGHTMARE!");
+            else
+                V_DrawPatchDirect (x, y, W_CacheLumpName(name, PU_CACHE));
 	}
 	y += LINEHEIGHT;
     }
@@ -2122,4 +2127,3 @@ void M_Init (void)
 
     //opldev = M_CheckParm("-opldev") > 0;
 }
-

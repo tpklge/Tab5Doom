@@ -17,6 +17,18 @@
 //
 
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#ifdef ESP_PLATFORM
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#undef bool
+#undef true
+#undef false
+#endif
 
 #include "m_misc.h"
 #include "w_file.h"
@@ -49,6 +61,37 @@ static wad_file_t *W_StdC_OpenFile(char *path)
     result->wad.mapped = NULL;
     result->wad.length = M_FileLength(fstream);
     result->fstream = fstream;
+#ifdef ESP_PLATFORM
+    // SPIFFS random seeks through a large WAD are expensive. Use PSRAM as
+    // the existing engine's memory-mapped backend, with streaming fallback.
+    int64_t started = esp_timer_get_time();
+    byte *mapped = heap_caps_malloc(result->wad.length, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (mapped != NULL) {
+        rewind(fstream);
+        size_t read_bytes = 0;
+        while (read_bytes < result->wad.length) {
+            size_t chunk = result->wad.length - read_bytes;
+            if (chunk > 65536) chunk = 65536;
+            size_t got = fread(mapped + read_bytes, 1, chunk, fstream);
+            if (got == 0) break;
+            read_bytes += got;
+            vTaskDelay(1);
+        }
+        if (read_bytes == result->wad.length) {
+            result->wad.mapped = mapped;
+            fclose(fstream);
+            result->fstream = NULL;
+            ESP_LOGI("WAD_RAM", "Loaded %u bytes into PSRAM in %lld ms: %s",
+                     result->wad.length, (long long)((esp_timer_get_time() - started) / 1000), path);
+        } else {
+            free(mapped);
+            rewind(fstream);
+            ESP_LOGW("WAD_RAM", "Preload incomplete, using file streaming: %s", path);
+        }
+    } else {
+        ESP_LOGW("WAD_RAM", "No contiguous PSRAM for WAD, using file streaming: %s", path);
+    }
+#endif
 
     return &result->wad;
 }
@@ -59,7 +102,8 @@ static void W_StdC_CloseFile(wad_file_t *wad)
 
     stdc_wad = (stdc_wad_file_t *) wad;
 
-    fclose(stdc_wad->fstream);
+    if (stdc_wad->fstream) fclose(stdc_wad->fstream);
+    free(wad->mapped);
     Z_Free(stdc_wad);
 }
 
@@ -73,6 +117,12 @@ size_t W_StdC_Read(wad_file_t *wad, unsigned int offset,
     size_t result;
 
     stdc_wad = (stdc_wad_file_t *) wad;
+    if (offset >= wad->length) return 0;
+    if (buffer_len > wad->length - offset) buffer_len = wad->length - offset;
+    if (wad->mapped != NULL) {
+        memcpy(buffer, wad->mapped + offset, buffer_len);
+        return buffer_len;
+    }
 
     // Jump to the specified position in the file.
 
@@ -92,5 +142,3 @@ wad_file_class_t stdc_wad_file =
     W_StdC_CloseFile,
     W_StdC_Read,
 };
-
-

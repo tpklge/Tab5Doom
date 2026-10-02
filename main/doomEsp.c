@@ -17,13 +17,13 @@
 #include <string.h>
 #include <unistd.h>
 
-/* Tab5 display is 720×1280 portrait.  We scale DOOM 320×200 uniformly so
- * it fits the width (scale = 720/320 = 2.25 → output 720×450) and centre
- * it vertically with black letterbox bars.  Computed once at startup. */
-static int   g_scaled_w;
-static int   g_scaled_h;
-static int   g_out_x;
-static int   g_out_y;
+/* Rotate DOOM 90 degrees into the physical portrait framebuffer so the
+ * Tab5 is used in landscape. PPA scale factors have 1/16 precision. */
+static int g_scaled_w;
+static int g_scaled_h;
+static int g_out_x;
+static int g_out_y;
+static float g_scale;
 
 static const char *TAG = "DOOM_ESP";
 
@@ -41,12 +41,8 @@ static bsp_p4_handles_t g_bsp_handles;
 // Draw hook for doomgeneric
 void p4_doom_draw_frame(const uint32_t *buffer) {
   memcpy(doom_rb565, buffer, DOOM_W * DOOM_H * 2);
-  esp_cache_msync(doom_rb565, DOOM_W * DOOM_H * 2,
-                  ESP_CACHE_MSYNC_FLAG_DIR_C2M);
-
-  /* Uniform scale with letterbox: DOOM 320×200 → g_scaled_w×g_scaled_h,
-   * centred in the LCD_H_RES×LCD_V_RES portrait framebuffer. */
-  float scale = (float)g_scaled_w / (float)DOOM_W;
+  // PPA driver synchronizes the input and output cache windows.
+  int64_t started = esp_timer_get_time();
 
   ppa_srm_oper_config_t srm_config = {
       .in = {.buffer  = doom_rb565,
@@ -62,14 +58,33 @@ void p4_doom_draw_frame(const uint32_t *buffer) {
               .block_offset_x  = g_out_x,
               .block_offset_y  = g_out_y,
               .srm_cm          = PPA_SRM_COLOR_MODE_RGB565},
-      .rotation_angle = PPA_SRM_ROTATION_ANGLE_0,
-      .scale_x = scale,
-      .scale_y = scale,
+      .rotation_angle = PPA_SRM_ROTATION_ANGLE_90,
+      .scale_x = g_scale,
+      .scale_y = g_scale,
+      .mode = PPA_TRANS_MODE_BLOCKING,
   };
 
-  ppa_do_scale_rotate_mirror(ppa_client, &srm_config);
-  esp_cache_msync(global_frame_buffer, LCD_H_RES * LCD_V_RES * 2,
-                  ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+  ESP_ERROR_CHECK(ppa_do_scale_rotate_mirror(ppa_client, &srm_config));
+  // Both PPA and LCD access RAM by DMA; no CPU writeback of the full
+  // 1.84 MB output framebuffer is required after this operation.
+  static int64_t report_start;
+  static uint32_t frames, max_render_us;
+  static uint64_t total_render_us;
+  int64_t now = esp_timer_get_time();
+  uint32_t render_us = (uint32_t)(now - started);
+  if (!report_start) report_start = started;
+  frames++;
+  total_render_us += render_us;
+  if (render_us > max_render_us) max_render_us = render_us;
+  if (now - report_start >= 5000000) {
+    ESP_LOGI(TAG, "Render: %.1f fps, PPA avg=%llu us max=%lu us",
+             frames * 1000000.0 / (now - report_start),
+             (unsigned long long)(total_render_us / frames),
+             (unsigned long)max_render_us);
+    report_start = now;
+    frames = max_render_us = 0;
+    total_render_us = 0;
+  }
 }
 
 // Queue for keyboard events
@@ -113,6 +128,75 @@ static void queue_doom_key(unsigned char key, int pressed) {
     return;
   doom_key_event_t ev = {.pressed = pressed, .key = key};
   xQueueSend(doom_key_queue, &ev, 0);
+}
+
+/* Tab5 Keyboard Ext.Port1 protocol from M5Stack M5Unit-KEYBOARD:
+ * 0x6D on SDA=GPIO0/SCL=GPIO1; normal mode gives press/release matrix events. */
+static void tab5_keyboard_task(void *arg)
+{
+  (void)arg;
+  i2c_master_bus_handle_t bus = NULL;
+  const i2c_master_bus_config_t bus_cfg = {
+      .i2c_port = I2C_NUM_1, .sda_io_num = GPIO_NUM_0,
+      .scl_io_num = GPIO_NUM_1, .clk_source = I2C_CLK_SRC_DEFAULT,
+      .glitch_ignore_cnt = 7, .flags.enable_internal_pullup = true,
+  };
+  ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &bus));
+  if (i2c_master_probe(bus, 0x6D, 100) != ESP_OK) {
+    ESP_LOGW(TAG, "Tab5 Keyboard not found at Ext.Port1 I2C 0x6D");
+    i2c_del_master_bus(bus);
+    vTaskDelete(NULL);
+    return;
+  }
+  i2c_master_dev_handle_t device = NULL;
+  const i2c_device_config_t dev_cfg = {
+      .device_address = 0x6D, .scl_speed_hz = 100000,
+  };
+  ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &dev_cfg, &device));
+  const uint8_t mode[] = {0x10, 0x00}; // Normal mode, clears event queue
+  ESP_ERROR_CHECK(i2c_master_transmit(device, mode, sizeof(mode), 100));
+  ESP_LOGI(TAG, "Tab5 Keyboard ready: WASD/arrows move, Ctrl fire, E/Space use, Aa run");
+  static const uint8_t matrix_hid[70] = {
+      0x29, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2D, 0x2E, 0x4C, 0x35, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2F, 0x30, 0x31, 0x2B, 0x14, 0x1A, 0x08, 0x15, 0x17, 0x1C, 0x18, 0x0C, 0x12, 0x13, 0x33, 0x34, 0x2A, 0x00, 0x00, 0x04, 0x16, 0x07, 0x09, 0x0A, 0x0B, 0x0D, 0x0E, 0x0F, 0x52, 0x2D, 0x28, 0x00, 0x00, 0x1D, 0x1B, 0x06, 0x19, 0x05, 0x11, 0x10, 0x37, 0x50, 0x51, 0x4F, 0x2C
+  };
+  bool held[70] = {0};
+  uint8_t references[256] = {0};
+  bool reported_input = false;
+  while (true) {
+    for (int n = 0; n < 32; n++) {
+      const uint8_t reg = 0x20;
+      uint8_t event;
+      if (i2c_master_transmit_receive(device, &reg, 1, &event, 1, 20) != ESP_OK)
+        break;
+      if (event == 0xFF) break;
+      unsigned row = (event >> 4) & 7, col = event & 15;
+      if (row >= 5 || col >= 14) continue;
+      unsigned index = row * 14 + col;
+      bool pressed = (event & 0x80) != 0;
+      if (held[index] == pressed) continue;
+      held[index] = pressed;
+      unsigned char key = hid_to_doom[matrix_hid[index]];
+      if (index == 43) key = KEY_RSHIFT; // Aa
+      if (index == 56) key = KEY_FIRE;   // Ctrl
+      if (index == 57) key = KEY_RALT;
+      if (key == 'w') key = KEY_UPARROW;
+      if (key == 'a') key = KEY_LEFTARROW;
+      if (key == 's') key = KEY_DOWNARROW;
+      if (key == 'd') key = KEY_RIGHTARROW;
+      if (key == 'e' || key == ' ') key = KEY_USE;
+      if (!key) continue;
+      if (pressed) {
+        if (references[key]++ == 0) queue_doom_key(key, 1);
+      } else if (references[key] && --references[key] == 0) {
+        queue_doom_key(key, 0);
+      }
+      if (!reported_input) {
+        ESP_LOGI(TAG, "Tab5 Keyboard: first game key event received");
+        reported_input = true;
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
 }
 
 // USB HID Host Callback
@@ -253,17 +337,19 @@ void doomEsp_Start(bsp_p4_handles_t bsp_handles, uint16_t *frame_buffer) {
   global_frame_buffer = frame_buffer;
   g_bsp_handles = bsp_handles;
 
-  /* Compute uniform scale and letterbox offsets for portrait display. */
+  /* Logical landscape 1280×720; after rotation width and height swap.
+   * Quantize before calculating offsets so the result is truly centered. */
   {
-    float sx = (float)LCD_H_RES / (float)DOOM_W;
-    float sy = (float)LCD_V_RES / (float)DOOM_H;
-    float scale = (sx < sy) ? sx : sy;
-    g_scaled_w = (int)(DOOM_W * scale);
-    g_scaled_h = (int)(DOOM_H * scale);
-    g_out_x = (LCD_H_RES - g_scaled_w) / 2;
-    g_out_y = (LCD_V_RES - g_scaled_h) / 2;
-    ESP_LOGI(TAG, "Display %dx%d | DOOM scaled to %dx%d at offset (%d,%d)",
-             LCD_H_RES, LCD_V_RES, g_scaled_w, g_scaled_h, g_out_x, g_out_y);
+    float sx = (float)LCD_V_RES / (float)DOOM_W;
+    float sy = (float)LCD_H_RES / (float)DOOM_H;
+    float fit = sx < sy ? sx : sy;
+    g_scale = (int)(fit * 16.0f) / 16.0f;
+    g_scaled_w = (int)(DOOM_W * g_scale);
+    g_scaled_h = (int)(DOOM_H * g_scale);
+    g_out_x = (LCD_H_RES - g_scaled_h) / 2;
+    g_out_y = (LCD_V_RES - g_scaled_w) / 2;
+    ESP_LOGI(TAG, "Landscape %dx%d | DOOM %dx%d, rotation=90, physical offset=(%d,%d)",
+             LCD_V_RES, LCD_H_RES, g_scaled_w, g_scaled_h, g_out_x, g_out_y);
   }
   /* Fill entire framebuffer with black so letterbox areas stay dark. */
   memset(global_frame_buffer, 0, LCD_H_RES * LCD_V_RES * 2);
@@ -272,6 +358,10 @@ void doomEsp_Start(bsp_p4_handles_t bsp_handles, uint16_t *frame_buffer) {
 
   // 0. Keyboard Queue
   doom_key_queue = xQueueCreate(32, sizeof(doom_key_event_t));
+  assert(doom_key_queue);
+  BaseType_t keyboard_created = xTaskCreatePinnedToCore(
+      tab5_keyboard_task, "tab5_keyboard", 4096, NULL, 2, NULL, 0);
+  assert(keyboard_created == pdPASS);
 
   // 1. Initialize SPIFFS Subsystem
   esp_vfs_spiffs_conf_t spiffs_conf = {.base_path = "/spiffs",
@@ -310,44 +400,79 @@ void doomEsp_Start(bsp_p4_handles_t bsp_handles, uint16_t *frame_buffer) {
   doomEsp_SoundInit();
 
   // 3.5 Initialize SD Card (optional)
-  char *iwad_path = "/spiffs/doom1.wad"; // default IWAD
+  char *iwad_path = NULL;
+  static char *const flash_iwads[] = {
+      "/spiffs/doom2.wad", "/spiffs/DOOM2.WAD",
+      "/spiffs/doom.wad", "/spiffs/DOOM.WAD",
+      "/spiffs/doom1.wad", "/spiffs/DOOM1.WAD",
+  };
+  for (unsigned i = 0; i < sizeof(flash_iwads) / sizeof(flash_iwads[0]); i++) {
+    FILE *candidate = fopen(flash_iwads[i], "rb");
+    if (candidate) {
+      iwad_path = flash_iwads[i];
+      fclose(candidate);
+      break;
+    }
+  }
   char *pwad_path = NULL;                // optional PWAD
 
   if (bsp_sdcard_mount() == ESP_OK) {
     ESP_LOGI(TAG,
              "SD Card mounted successfully at /sdcard. Searching for WADs...");
     chdir("/sdcard");
-    strcpy(doomEsp_savedir, "/sdcard");
-    FILE *f;
-
-    // Check for base IWAD first
-    if ((f = fopen("/sdcard/doom2.wad", "rb"))) {
-      iwad_path = "/sdcard/doom2.wad";
-      fclose(f);
-    } else if ((f = fopen("/sdcard/doom.wad", "rb"))) {
-      iwad_path = "/sdcard/doom.wad";
-      fclose(f);
-    } else if ((f = fopen("/sdcard/doom1.wad", "rb"))) {
-      iwad_path = "/sdcard/doom1.wad";
-      fclose(f);
-    } else {
-      ESP_LOGW(TAG, "No base IWADs found on SD. Using internal Flash.");
+    strcpy(doomEsp_savedir, "/sdcard/");
+    static char *const sd_iwads[] = {
+        "/sdcard/doom/doom2.wad", "/sdcard/doom/DOOM2.WAD",
+        "/sdcard/doom/doom.wad", "/sdcard/doom/DOOM.WAD",
+        "/sdcard/doom/doom1.wad", "/sdcard/doom/DOOM1.WAD",
+        "/sdcard/doom2.wad", "/sdcard/DOOM2.WAD",
+        "/sdcard/doom.wad", "/sdcard/DOOM.WAD",
+        "/sdcard/doom1.wad", "/sdcard/DOOM1.WAD",
+    };
+    bool found_sd_iwad = false;
+    bool in_doom_folder = false;
+    for (unsigned i = 0; i < sizeof(sd_iwads) / sizeof(sd_iwads[0]); i++) {
+      FILE *candidate = fopen(sd_iwads[i], "rb");
+      if (!candidate) continue;
+      fclose(candidate);
+      iwad_path = sd_iwads[i];
+      found_sd_iwad = true;
+      in_doom_folder = i < 6;
+      ESP_LOGI(TAG, "Found SD IWAD: %s", iwad_path);
+      break;
     }
-
-    // Check for Chiquito PWAD mod
-    if ((f = fopen("/sdcard/chiquito.wad", "rb"))) {
-      pwad_path = "/sdcard/chiquito.wad";
-      ESP_LOGI(TAG, "Found PWAD: chiquito.wad");
-      fclose(f);
+    if (!found_sd_iwad) {
+      ESP_LOGW(TAG, "No base IWAD in SD /doom or root. Using internal Flash.");
+    } else {
+      // Keep optional mods alongside the selected SD IWAD.
+      char *const mods_folder[] = {"/sdcard/doom/chiquito.wad", "/sdcard/doom/CHIQUITO.WAD"};
+      char *const mods_root[] = {"/sdcard/chiquito.wad", "/sdcard/CHIQUITO.WAD"};
+      char *const *mods = in_doom_folder ? mods_folder : mods_root;
+      for (unsigned i = 0; i < 2; i++) {
+        FILE *candidate = fopen(mods[i], "rb");
+        if (!candidate) continue;
+        fclose(candidate);
+        pwad_path = mods[i];
+        ESP_LOGI(TAG, "Found PWAD: %s", pwad_path);
+        break;
+      }
+      if (in_doom_folder) {
+        chdir("/sdcard/doom");
+        strcpy(doomEsp_savedir, "/sdcard/doom/");
+      }
     }
   } else {
     ESP_LOGW(
         TAG,
         "No SD card detected (or mount failed). Fallback to internal SPIFFS.");
     chdir("/spiffs");
-    strcpy(doomEsp_savedir, "/spiffs");
+    strcpy(doomEsp_savedir, "/spiffs/");
   }
 
+  if (!iwad_path) {
+    ESP_LOGE(TAG, "No readable IWAD found in SPIFFS or SD");
+    return;
+  }
   ESP_LOGI(TAG, "Starting DOOM. IWAD: %s, PWAD: %s", iwad_path,
            pwad_path ? pwad_path : "None");
 

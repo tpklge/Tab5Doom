@@ -32,6 +32,7 @@
 #include "deh_main.h"
 #include "deh_misc.h"
 #include "doomdef.h"
+#include "i_swap.h"
 #include "doomkeys.h"
 
 #include "g_game.h"
@@ -306,6 +307,7 @@ static boolean		st_fragson;
 
 // main bar left
 static patch_t*		sbar;
+static patch_t *sbar_right; // Early registered IWADs split STBAR into two patches.
 
 // 0-9, tall numbers
 static patch_t*		tallnum[10];
@@ -421,6 +423,8 @@ void ST_refreshBackground(void)
         V_UseBuffer(st_backing_screen);
 
 	V_DrawPatch(ST_X, 0, sbar);
+        if (sbar_right)
+            V_DrawPatch(ST_X + SHORT(sbar->width), 0, sbar_right);
 
 	if (netgame)
 	    V_DrawPatch(ST_FX, 0, faceback);
@@ -1124,7 +1128,12 @@ static void ST_loadUnloadGraphics(load_callback_t callback)
     callback(namebuf, &faceback);
 
     // status bar background bits
-    callback(DEH_String("STBAR"), &sbar);
+    if (W_CheckNumForName(DEH_String("STBAR")) >= 0) {
+        callback(DEH_String("STBAR"), &sbar);
+    } else {
+        callback(DEH_String("STMBARL"), &sbar);
+        callback(DEH_String("STMBARR"), &sbar_right);
+    }
 
     // face states
     facenum = 0;
@@ -1413,4 +1422,3 @@ void ST_Init (void)
     ST_loadData();
     st_backing_screen = (byte *) Z_Malloc(ST_WIDTH * ST_HEIGHT, PU_STATIC, 0);
 }
-

@@ -50,7 +50,10 @@ patch_t*		sttminus;
 
 void STlib_init(void)
 {
-    sttminus = (patch_t *) W_CacheLumpName(DEH_String("STTMINUS"), PU_STATIC);
+    const char *minus_name = DEH_String("STTMINUS");
+    if (W_CheckNumForName(minus_name) < 0)
+        minus_name = DEH_String("STCFN045"); // Early IWAD: use the HUD font minus.
+    sttminus = (patch_t *) W_CacheLumpName(minus_name, PU_STATIC);
 }
 
 
@@ -281,4 +284,3 @@ STlib_updateBinIcon
     }
 
 }
-

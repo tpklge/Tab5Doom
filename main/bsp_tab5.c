@@ -5,8 +5,8 @@
  * Replaces bsp_p4_eval.c.  Same public API, completely different hardware.
  *
  * Display pipeline:
- *   ESP32-P4 MIPI-DSI (2 lanes, 800 Mbps)
- *     → ILI9881C controller (720×1280 portrait)
+ *   ESP32-P4 MIPI-DSI (2 lanes, 965 Mbps)
+ *     → ST7123 controller (720×1280 portrait)
  *   The DPI framebuffer is kept in portrait orientation.
  *   DOOM's 320×200 output is scaled and letterboxed by the PPA in doomEsp.c.
  *
@@ -14,11 +14,8 @@
  *   ES8388 codec (I2C @ 0x10, I2S on GPIOs 27-30)
  *   Speaker amp NS4150B enabled via PI4IOE5V6408 IO expander bit P1.
  *
- * NOTE: The Tab5 ships with different panel ICs depending on production batch
- * (ILI9881C, ST7703, ST7123).  This file targets ILI9881C.  If your unit has
- * ST7703, swap esp_lcd_ili9881c for esp_lcd_st7703 and update the timing
- * macros.  If it has the integrated ST7123 TDDI, an entirely different driver
- * is required (esp_lcd_st7123).
+ * This unit reports TDDI firmware version 3 at I2C 0x55 (ST7123).
+ * See TAB5DOOM_DISPLAY_INIT_HISTORY.txt for hardware validation.
  */
 
 #include "bsp_tab5.h"
@@ -30,7 +27,7 @@
 #include "esp_codec_dev_defaults.h"
 #include "esp_io_expander.h"
 #include "esp_io_expander_pi4ioe5v6408.h"
-#include "esp_lcd_ili9881c.h"
+#include "esp_lcd_st7123.h"
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_touch_gt911.h"
@@ -47,21 +44,73 @@ static esp_io_expander_handle_t s_ioexp      = NULL;
 static i2s_chan_handle_t        s_i2s_tx     = NULL;
 static i2s_chan_handle_t        s_i2s_rx     = NULL;
 
+/* Enable USB-A VBUS on expander B P3 without resetting its other outputs. */
+static esp_err_t enable_usb_host_power(void)
+{
+    i2c_master_dev_handle_t device = NULL;
+    const i2c_device_config_t cfg = {
+        .device_address = 0x44, .scl_speed_hz = 100000,
+    };
+    esp_err_t ret = i2c_master_bus_add_device(s_i2c_bus, &cfg, &device);
+    if (ret != ESP_OK) return ret;
+    const uint8_t registers[] = {0x05, 0x07, 0x03}; // output, high-Z, direction
+    for (unsigned i = 0; i < sizeof(registers); i++) {
+        uint8_t value;
+        ret = i2c_master_transmit_receive(device, &registers[i], 1, &value, 1, 100);
+        if (ret != ESP_OK) break;
+        value = registers[i] == 0x07 ? value & ~BIT(3) : value | BIT(3);
+        uint8_t write[] = {registers[i], value};
+        ret = i2c_master_transmit(device, write, sizeof(write), 100);
+        if (ret != ESP_OK) break;
+    }
+    esp_err_t cleanup = i2c_master_bus_rm_device(device);
+    if (ret == ESP_OK) ret = cleanup;
+    if (ret == ESP_OK) ESP_LOGI(TAG, "USB-A 5V enabled (expander 0x44 P3)");
+    return ret;
+}
+
+esp_err_t bsp_audio_configure_output(void)
+{
+    i2c_master_dev_handle_t device = NULL;
+    const i2c_device_config_t cfg = {
+        .device_address = 0x10, .scl_speed_hz = 100000,
+    };
+    esp_err_t ret = i2c_master_bus_add_device(s_i2c_bus, &cfg, &device);
+    if (ret != ESP_OK) return ret;
+    // M5Unified Tab5 DAC routing; our I2S retains its 256x MCLK ratio.
+    static const uint8_t regs[][2] = {
+        {0x00, 0x80}, {0x00, 0x00}, {0x00, 0x0E}, {0x01, 0x00},
+        {0x02, 0x0A}, {0x03, 0xFF}, {0x04, 0x3C},
+        {0x05, 0x00}, {0x06, 0x00}, {0x07, 0x7C}, {0x08, 0x00},
+        {0x17, 0x18}, {0x18, 0x02}, {0x19, 0x20},
+        {0x1C, 0x08}, {0x1D, 0x00}, {0x26, 0x00},
+        {0x27, 0xB8}, {0x2A, 0xB8}, {0x2B, 0x08},
+        {0x2D, 0x00}, {0x2E, 0x21}, {0x2F, 0x21}, {0x30, 0x21}, {0x31, 0x21},
+    };
+    for (unsigned i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
+        ret = i2c_master_transmit(device, regs[i], 2, 100);
+        if (ret != ESP_OK) break;
+        vTaskDelay(1);
+        uint8_t readback;
+        ret = i2c_master_transmit_receive(device, regs[i], 1, &readback, 1, 100);
+        if (ret != ESP_OK) break;
+        ESP_LOGI(TAG, "ES8388 reg 0x%02X=0x%02X", regs[i][0], readback);
+    }
+    esp_err_t cleanup = i2c_master_bus_rm_device(device);
+    if (ret == ESP_OK) ret = cleanup;
+    return ret;
+}
+
 /* -------------------------------------------------------------------------
- * ILI9881C 720×1280 @ 60 Hz DPI timing for Tab5
- * Derived from community BSP measurements:
- *   lane_bit_rate = 800 Mbps, 2 lanes → ~800 MHz bit clock
- *   DPI pixel clock ≈ 800 MHz * 2 lanes / (2 * BPP16) = 50 MHz eff.
- * Horizontal: active=720, pulse=40, back=140, front=40  → htotal=940
- * Vertical:   active=1280, pulse=4,  back=20,  front=16 → vtotal=1320
+ * ST7123 720×1280 timing from the official M5Stack Tab5 BSP.
+ * 965 Mbps, 2 lanes; 70 MHz / (802 × 1510) ≈ 57.8 fps.
  * ------------------------------------------------------------------------- */
-#define ILI9881C_PANEL_BUS_CLK_HZ   (800 * 1000 * 1000)  /* MIPI lane bit rate */
-#define ILI9881C_H_PULSE             40
-#define ILI9881C_H_BACK              140
-#define ILI9881C_H_FRONT             40
-#define ILI9881C_V_PULSE             4
-#define ILI9881C_V_BACK              20
-#define ILI9881C_V_FRONT             16
+#define ST7123_H_PULSE               2
+#define ST7123_H_BACK                40
+#define ST7123_H_FRONT               40
+#define ST7123_V_PULSE               2
+#define ST7123_V_BACK                8
+#define ST7123_V_FRONT               220
 
 /* -------------------------------------------------------------------------
  * Backlight (LEDC PWM on GPIO 22)
@@ -120,21 +169,25 @@ static esp_err_t init_i2c(void)
 /* -------------------------------------------------------------------------
  * IO Expander PI4IOE5V6408 (0x43)
  * P1 = speaker amp enable (set high after codec init)
- * P0 = used by touch reset pulse (toggled in hardware init sequence below)
+ * P6 = used by touch reset pulse (toggled in hardware init sequence below)
  * ------------------------------------------------------------------------- */
 static esp_err_t init_io_expander(void)
 {
     if (s_ioexp) return ESP_OK;
     ESP_ERROR_CHECK(init_i2c());
 
-    esp_io_expander_new_i2c_pi4ioe5v6408(s_i2c_bus, BSP_IOEXP_I2C_ADDR, &s_ioexp);
+    ESP_ERROR_CHECK(esp_io_expander_new_i2c_pi4ioe5v6408(s_i2c_bus, BSP_IOEXP_I2C_ADDR, &s_ioexp));
     if (!s_ioexp) {
         ESP_LOGE(TAG, "Failed to init IO expander at 0x%02X", BSP_IOEXP_I2C_ADDR);
         return ESP_FAIL;
     }
-    /* Set P0 and P1 as outputs, initially low. */
-    esp_io_expander_set_dir(s_ioexp, BIT64(0) | BIT64(1), IO_EXPANDER_OUTPUT);
-    esp_io_expander_set_level(s_ioexp, BIT64(0) | BIT64(1), 0);
+    /* Bits 1,2,4,6 as outputs; start: 5V off, LCD/TP reset held low, SPK off. */
+    uint64_t out_bits = BIT64(BSP_IOEXP_SPK_BIT) | BIT64(BSP_IOEXP_5V_BIT) |
+                        BIT64(BSP_IOEXP_LCD_RST_BIT) | BIT64(BSP_IOEXP_TP_RST_BIT);
+    ESP_ERROR_CHECK(esp_io_expander_set_dir(s_ioexp, out_bits, IO_EXPANDER_OUTPUT));
+    ESP_ERROR_CHECK(esp_io_expander_set_level(s_ioexp, out_bits, 0));
+    ESP_ERROR_CHECK(esp_io_expander_set_pullupdown(s_ioexp,
+        BIT64(BSP_IOEXP_LCD_RST_BIT) | BIT64(BSP_IOEXP_TP_RST_BIT), IO_EXPANDER_PULL_UP));
     return ESP_OK;
 }
 
@@ -158,14 +211,51 @@ esp_err_t bsp_p4_init_hardware(bsp_p4_handles_t *handles)
     /* 3. IO expander */
     ret = init_io_expander();
     if (ret != ESP_OK) return ret;
+    ret = enable_usb_host_power();
+    if (ret != ESP_OK) return ret;
 
-    /* 4. Touch reset via IO expander P0: pulse low 10 ms → high 120 ms */
-    esp_io_expander_set_level(s_ioexp, BIT64(0), 0);
+    /* 4. Enable external 5V rail (bit 2) before display/touch init */
+    esp_io_expander_set_level(s_ioexp, BIT64(BSP_IOEXP_5V_BIT), 1);
     vTaskDelay(pdMS_TO_TICKS(10));
-    esp_io_expander_set_level(s_ioexp, BIT64(0), 1);
+
+    /* 5. LCD + touch reset: bit 4 (LCD) and bit 6 (touch)
+     *    Low for 10 ms → high, wait 120 ms for panel to boot */
+    esp_io_expander_set_level(s_ioexp,
+        BIT64(BSP_IOEXP_LCD_RST_BIT) | BIT64(BSP_IOEXP_TP_RST_BIT), 0);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    /* P4 LCD reset is released through a pull-up, matching M5Stack's BSP.
+     * Keep its output latch low and switch direction rather than driving high. */
+    ESP_ERROR_CHECK(esp_io_expander_set_dir(s_ioexp,
+        BIT64(BSP_IOEXP_LCD_RST_BIT), IO_EXPANDER_INPUT));
+    ESP_ERROR_CHECK(esp_io_expander_set_level(s_ioexp,
+        BIT64(BSP_IOEXP_TP_RST_BIT), 1));
+    ESP_LOGI(TAG, "Reset released: LCD=P4 input/pull-up, touch=P6 high");
     vTaskDelay(pdMS_TO_TICKS(120));
 
+    /* I2C scan after reset to show which devices are now visible */
+    ESP_LOGI(TAG, "I2C bus scan (after reset):");
+    for (uint16_t addr = 0x08; addr <= 0x77; addr++) {
+        esp_err_t probe = i2c_master_probe(s_i2c_bus, addr, 10);
+        if (probe == ESP_OK) {
+            ESP_LOGI(TAG, "  Found I2C device at 0x%02X", addr);
+        }
+    }
+
     /* 5. Backlight PWM */
+    if (i2c_master_probe(s_i2c_bus, 0x55, 50) == ESP_OK) {
+        i2c_master_dev_handle_t tddi = NULL;
+        i2c_device_config_t cfg = {
+            .device_address = 0x55, .scl_speed_hz = 100000,
+        };
+        ESP_ERROR_CHECK(i2c_master_bus_add_device(s_i2c_bus, &cfg, &tddi));
+        uint8_t reg[] = {0x00, 0x00};
+        uint8_t version = 0;
+        esp_err_t result = i2c_master_transmit_receive(tddi, reg, sizeof(reg),
+                                                     &version, 1, 100);
+        ESP_LOGI(TAG, "TDDI 0x55 firmware version=%u, read=%s (1=ST7121, 3=ST7123)",
+                 version, esp_err_to_name(result));
+        ESP_ERROR_CHECK(i2c_master_bus_rm_device(tddi));
+    }
     ret = init_backlight();
     if (ret != ESP_OK) return ret;
 
@@ -192,27 +282,27 @@ esp_err_t bsp_p4_init_hardware(bsp_p4_handles_t *handles)
     if (ret != ESP_OK) return ret;
     handles->io_handle = io_handle;
 
-    /* 8. ILI9881C panel + DPI timing */
-    ESP_LOGI(TAG, "Initializing ILI9881C panel (%dx%d)...", LCD_H_RES, LCD_V_RES);
+    /* 8. ST7123 panel + DPI timing */
+    ESP_LOGI(TAG, "Initializing identified ST7123 display (720x1280, DSI 965Mbps)...");
     esp_lcd_dpi_panel_config_t dpi_cfg = {
         .virtual_channel  = 0,
         .dpi_clk_src      = MIPI_DSI_DPI_CLK_SRC_DEFAULT,
-        .dpi_clock_freq_mhz = 0,   /* derived from lane rate */
+        .dpi_clock_freq_mhz = 70,  /* Official M5Stack ST7123 timing */
         .pixel_format     = LCD_COLOR_PIXEL_FORMAT_RGB565,
         .num_fbs          = 1,
         .video_timing     = {
             .h_size           = LCD_H_RES,
             .v_size           = LCD_V_RES,
-            .hsync_back_porch = ILI9881C_H_BACK,
-            .hsync_pulse_width= ILI9881C_H_PULSE,
-            .hsync_front_porch= ILI9881C_H_FRONT,
-            .vsync_back_porch = ILI9881C_V_BACK,
-            .vsync_pulse_width= ILI9881C_V_PULSE,
-            .vsync_front_porch= ILI9881C_V_FRONT,
+            .hsync_back_porch = ST7123_H_BACK,
+            .hsync_pulse_width= ST7123_H_PULSE,
+            .hsync_front_porch= ST7123_H_FRONT,
+            .vsync_back_porch = ST7123_V_BACK,
+            .vsync_pulse_width= ST7123_V_PULSE,
+            .vsync_front_porch= ST7123_V_FRONT,
         },
     };
 
-    ili9881c_vendor_config_t vendor_cfg = {
+    st7123_vendor_config_t st7123_vendor_cfg = {
         .mipi_config = {
             .dsi_bus    = dsi_bus,
             .dpi_config = &dpi_cfg,
@@ -223,43 +313,23 @@ esp_err_t bsp_p4_init_hardware(bsp_p4_handles_t *handles)
         .bits_per_pixel  = 16,
         .rgb_ele_order   = LCD_RGB_ELEMENT_ORDER_RGB,
         .reset_gpio_num  = LCD_RESET_GPIO,  /* GPIO_NUM_NC – reset done via ioexp */
-        .vendor_config   = &vendor_cfg,
+        .vendor_config   = &st7123_vendor_cfg,
     };
 
     esp_lcd_panel_handle_t panel = NULL;
-    ret = esp_lcd_new_panel_ili9881c(io_handle, &lcd_cfg, &panel);
+    ret = esp_lcd_new_panel_st7123(io_handle, &lcd_cfg, &panel);
     if (ret != ESP_OK) return ret;
 
-    esp_lcd_panel_reset(panel);
-    esp_lcd_panel_init(panel);
-    esp_lcd_panel_disp_on_off(panel, true);
+    ESP_ERROR_CHECK(esp_lcd_panel_reset(panel));
+    ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
+    ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
     handles->panel_handle = panel;
 
-    /* 9. GT911 touch over I2C */
-    ESP_LOGI(TAG, "Initializing GT911 touch...");
-    esp_lcd_panel_io_handle_t tp_io = NULL;
-    esp_lcd_panel_io_i2c_config_t tp_io_cfg = {
-        .dev_addr               = ESP_LCD_TOUCH_IO_I2C_GT911_ADDRESS,
-        .scl_speed_hz           = 400000,
-        .control_phase_bytes    = 1,
-        .lcd_cmd_bits           = 16,
-        .flags.disable_control_phase = 1,
-    };
-    ret = esp_lcd_new_panel_io_i2c(s_i2c_bus, &tp_io_cfg, &tp_io);
-    if (ret != ESP_OK) return ret;
+    /* 9. ST7123 integrated touch at 0x55 is identified but not initialized yet. */
+    ESP_LOGI(TAG, "Skipping ST7123 touch init (display bring-up only)");
+    handles->touch_handle = NULL;
 
-    esp_lcd_touch_config_t tp_cfg = {
-        .x_max       = LCD_H_RES,
-        .y_max       = LCD_V_RES,
-        .rst_gpio_num= GPIO_NUM_NC,  /* reset done above via IO expander */
-        .int_gpio_num= BSP_TOUCH_INT,
-        .levels      = {.reset = 0, .interrupt = 0},
-        .flags       = {.swap_xy = 0, .mirror_x = 0, .mirror_y = 0},
-    };
-    ret = esp_lcd_touch_new_i2c_gt911(tp_io, &tp_cfg, &handles->touch_handle);
-    if (ret != ESP_OK) return ret;
-
-    ESP_LOGI(TAG, "Tab5 display and touch ready.");
+    ESP_LOGI(TAG, "Tab5 display ready (touch skipped).");
     return ESP_OK;
 }
 
@@ -274,7 +344,7 @@ void bsp_audio_init(void *arg)
     init_i2c();
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
-    ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &s_i2s_tx, &s_i2s_rx));
+    ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &s_i2s_tx, NULL));
 
     i2s_std_config_t std_cfg = {
         .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(11025),
@@ -296,7 +366,6 @@ void bsp_audio_init(void *arg)
     std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
 
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(s_i2s_tx, &std_cfg));
-    ESP_ERROR_CHECK(i2s_channel_init_std_mode(s_i2s_rx, &std_cfg));
     ESP_ERROR_CHECK(i2s_channel_enable(s_i2s_tx));
 }
 
@@ -341,14 +410,18 @@ esp_codec_dev_handle_t bsp_audio_codec_speaker_init(void)
 
     /* Enable NS4150B speaker amp via IO expander P1 */
     if (s_ioexp) {
-        esp_io_expander_set_level(s_ioexp, BIT64(BSP_IOEXP_SPK_BIT), 1);
-        ESP_LOGI(TAG, "Speaker amp enabled via IO expander");
+        ESP_ERROR_CHECK(esp_io_expander_set_output_mode(s_ioexp,
+            BIT64(BSP_IOEXP_SPK_BIT), IO_EXPANDER_OUTPUT_MODE_PUSH_PULL));
+        ESP_ERROR_CHECK(esp_io_expander_set_level(s_ioexp, BIT64(BSP_IOEXP_SPK_BIT), 1));
+        uint32_t level = 0;
+        ESP_ERROR_CHECK(esp_io_expander_get_level(s_ioexp, BIT64(BSP_IOEXP_SPK_BIT), &level));
+        ESP_LOGI(TAG, "Speaker amp P1 push-pull enabled, input level=0x%lx", (unsigned long)level);
     } else {
         ESP_LOGW(TAG, "IO expander not initialized – speaker amp may stay muted");
     }
 
     esp_codec_dev_cfg_t dev_cfg = {
-        .dev_type = ESP_CODEC_DEV_TYPE_IN_OUT,
+        .dev_type = ESP_CODEC_DEV_TYPE_OUT,
         .codec_if = codec_if,
         .data_if  = data_if,
     };

@@ -2160,7 +2160,11 @@ void G_DoPlayDemo (void)
 
     demoversion = *demo_p++;
 
-    if (demoversion == G_VanillaVersionCode())
+    if (demoversion <= 4) // Early IWAD demos have skill as their first byte.
+    {
+        longtics = false;
+    }
+    else if (demoversion == G_VanillaVersionCode())
     {
         longtics = false;
     }
@@ -2185,14 +2189,22 @@ void G_DoPlayDemo (void)
                          DemoVersionDescription(demoversion));
     }
     
-    skill = *demo_p++; 
-    episode = *demo_p++; 
-    map = *demo_p++; 
-    deathmatch = *demo_p++;
-    respawnparm = *demo_p++;
-    fastparm = *demo_p++;
-    nomonsters = *demo_p++;
-    consoleplayer = *demo_p++;
+    if (demoversion <= 4) {
+        skill = demoversion;
+        episode = *demo_p++;
+        map = *demo_p++;
+        deathmatch = respawnparm = fastparm = nomonsters = false;
+        consoleplayer = 0;
+    } else {
+        skill = *demo_p++;
+        episode = *demo_p++;
+        map = *demo_p++;
+        deathmatch = *demo_p++;
+        respawnparm = *demo_p++;
+        fastparm = *demo_p++;
+        nomonsters = *demo_p++;
+        consoleplayer = *demo_p++;
+    }
 	
     for (i=0 ; i<MAXPLAYERS ; i++) 
 	playeringame[i] = *demo_p++; 

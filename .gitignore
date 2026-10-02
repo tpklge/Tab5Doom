@@ -81,3 +81,6 @@ Desktop.ini
 .vscode/
 /.clangd
 /.devcontainer
+
+# Local hardware debugging captures and downloaded references
+/.debug_logs/

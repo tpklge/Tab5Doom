@@ -50,12 +50,7 @@ static void audio_mixer_task(void *arg) {
     int16_t out_buffer[MIXBUFFER_SAMPLES * 2]; // Stereo
     
     // DOOM sound lumps are usually 11025 Hz, Mono, 8-bit unsigned
-    esp_codec_dev_sample_info_t fs = {
-        .sample_rate = 11025,
-        .channel = 2,
-        .bits_per_sample = 16
-    };
-    esp_codec_dev_open(speaker_handle, &fs);
+    // Codec is opened synchronously before this task is started.
     
     while (1) {
         memset(out_buffer, 0, sizeof(out_buffer));
@@ -97,7 +92,11 @@ static void audio_mixer_task(void *arg) {
             }
         }
         
-        esp_codec_dev_write(speaker_handle, out_buffer, sizeof(out_buffer));
+        int result = esp_codec_dev_write(speaker_handle, out_buffer, sizeof(out_buffer));
+        if (result != ESP_CODEC_DEV_OK) {
+            ESP_LOGE(TAG, "Audio write failed: %d", result);
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
     }
 }
 
@@ -133,6 +132,8 @@ static void Sound_UpdateSoundParams(int channel, int vol, int sep) {
 }
 
 static int Sound_StartSound(sfxinfo_t *sfxinfo, int channel, int vol, int sep) {
+    int lump_size = W_LumpLength(sfxinfo->lumpnum);
+    if (lump_size < 8) return -1;
     if (!sfxinfo->driver_data) {
         sfxinfo->driver_data = W_CacheLumpNum(sfxinfo->lumpnum, PU_STATIC);
     }
@@ -148,11 +149,12 @@ static int Sound_StartSound(sfxinfo_t *sfxinfo, int channel, int vol, int sep) {
     
     uint8_t *b = (uint8_t*)sfxinfo->driver_data;
     uint16_t format = b[0] | (b[1]<<8);
-    uint32_t num_samples = b[4] | (b[5]<<8) | (b[6]<<16) | (b[7]<<24);
+    uint32_t num_samples = (uint32_t)b[4] | ((uint32_t)b[5]<<8) |
+                           ((uint32_t)b[6]<<16) | ((uint32_t)b[7]<<24);
     
-    if (format != 3) {
+    if (format != 3 || num_samples > (uint32_t)lump_size - 8) {
         // Not a standard DOOM sound format
-        return c; 
+        return -1;
     }
     
     channels[c].data = (const uint8_t*)sfxinfo->driver_data;
@@ -161,6 +163,11 @@ static int Sound_StartSound(sfxinfo_t *sfxinfo, int channel, int vol, int sep) {
     channels[c].vol = vol;
     channels[c].sep = sep;
     channels[c].playing = true;
+    static unsigned logged_sounds;
+    if (logged_sounds++ < 5) {
+        ESP_LOGI(TAG, "SFX %s: %lu samples, volume=%d, channel=%d",
+                 sfxinfo->name, (unsigned long)num_samples, vol, c);
+    }
     
     return c;
 }
@@ -222,9 +229,33 @@ void doomEsp_SoundInit(void) {
         return;
     }
     
-    esp_codec_dev_set_out_vol(speaker_handle, 60);
+    esp_codec_dev_sample_info_t fs = {
+        .sample_rate = 11025, .channel = 2, .bits_per_sample = 16,
+    };
+    int result = esp_codec_dev_open(speaker_handle, &fs);
+    if (result != ESP_CODEC_DEV_OK) {
+        ESP_LOGE(TAG, "Codec open failed: %d", result);
+        return;
+    }
+    ESP_ERROR_CHECK(bsp_audio_configure_output());
+    ESP_ERROR_CHECK(esp_codec_dev_set_out_vol(speaker_handle, 70));
+    ESP_ERROR_CHECK(esp_codec_dev_set_out_mute(speaker_handle, false));
+    ESP_LOGI(TAG, "Codec ready: 11025 Hz stereo, volume=70, unmuted; test tone");
+    // Short, moderate-level 440 Hz tone to distinguish hardware output from SFX.
+    int16_t tone[256 * 2];
+    unsigned phase = 0;
+    for (int block = 0; block < 20; block++) {
+        for (int i = 0; i < 256; i++) {
+            phase = (phase + 440) % 11025;
+            int16_t value = phase < 5512 ? 1200 : -1200;
+            tone[i * 2] = tone[i * 2 + 1] = value;
+        }
+        ESP_ERROR_CHECK(esp_codec_dev_write(speaker_handle, tone, sizeof(tone)));
+    }
     
     for (int i = 0; i < NUM_CHANNELS; i++) channels[i].playing = false; // Initialize to zero
     
-    xTaskCreatePinnedToCore(audio_mixer_task, "audio_mixer", 8192, NULL, configMAX_PRIORITIES - 2, &mixer_task_handle, 1);
+    BaseType_t created = xTaskCreatePinnedToCore(audio_mixer_task, "audio_mixer",
+        8192, NULL, 5, &mixer_task_handle, 1);
+    assert(created == pdPASS);
 }

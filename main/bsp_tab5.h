@@ -7,13 +7,13 @@
  * doomEsp_sound.c need only an include path change.
  *
  * Tab5 key differences from the EV-Board:
- *   - Display:  ILI9881C (720×1280 portrait), MIPI-DSI 2-lane
+ *   - Display:  ST7123 (720×1280 portrait), MIPI-DSI 2-lane
  *   - Backlight: GPIO 22 (was GPIO 26)
  *   - Audio:    ES8388 codec @ I2C 0x10  (was ES8311 @ 0x18)
  *   - Speaker amp: NS4150B enabled via PI4IOE5V6408 IO expander (not GPIO 53)
  *   - I2S pins:  MCLK=30, BCLK=27, WS=29, DOUT=26, DIN=28
  *   - I2C pins:  SCL=32, SDA=31  (was 8/7)
- *   - Touch:    GT911 @ I2C 0x14, INT=GPIO 23
+ *   - Touch:    ST7123 @ I2C 0x55, INT=GPIO 23
  *   - SD card:  same GPIOs 39-44
  */
 
@@ -42,8 +42,8 @@ extern "C" {
 #define LCD_H_RES               720
 #define LCD_V_RES               1280
 
-/* MIPI-DSI: 2 data lanes at 800 Mbps gives 60 Hz on the ILI9881C panel. */
-#define LCD_BITRATE_MBPS        800
+/* MIPI-DSI: 2 data lanes at 965 Mbps (identified ST7123 panel). */
+#define LCD_BITRATE_MBPS        965
 #define LCD_DSI_LANES           2
 
 /* GPIO assignments */
@@ -64,9 +64,14 @@ extern "C" {
 #define BSP_I2S_DOUT            GPIO_NUM_26
 #define BSP_I2S_DIN             GPIO_NUM_28
 
-/* ---- IO Expander (PI4IOE5V6408) ---------------------------------------- */
-#define BSP_IOEXP_I2C_ADDR      0x43          /* expander A */
-#define BSP_IOEXP_SPK_BIT       1             /* bit P1 = NS4150B amp enable */
+/* ---- IO Expander A (PI4IOE5V6408 @ 0x43) -------------------------------- */
+#define BSP_IOEXP_I2C_ADDR      0x43
+#define BSP_IOEXP_SPK_BIT       1   /* bit 1 = NS4150B speaker amp enable */
+#define BSP_IOEXP_5V_BIT        2   /* bit 2 = external 5V rail enable */
+#define BSP_IOEXP_LCD_RST_BIT   4   /* bit 4 = LCD reset (active low) */
+#define BSP_IOEXP_TP_RST_BIT    6   /* bit 6 = touch reset (active low); P5 is camera reset */
+
+esp_err_t bsp_audio_configure_output(void);
 
 /* ---- MIPI DPHY power (same channel as EV-Board) ------------------------- */
 #define MIPI_DPHY_LDO_CHAN      3
