@@ -1,3 +1,96 @@
+TRANSIÇÃO VISUAL APROVADA — 2026-10-05
+-----------------------------------
+Usuário testou o firmware e confirmou: azul ainda aparece por milissegundos,
+logo apaga, e o resultado está excelente. Transição aceita como está.
+Serial registrou duas saídas controladas, ambas seguidas de
+"Backlight off and GPIO held for restart", com retorno ao menu e sem abort/panic.
+A captura iniciou com uma campanha já em execução; a seguinte foi TNT.
+ELF SHA prefixo 04a9e8e10. Log: .debug_logs/final-doom-backlight-validation.log.
+
+ILUMINAÇÃO DURANTE REINÍCIO — 2026-10-05
+-------------------------------------
+Usuário confirmou que a tela azul ainda aparecia, apesar da saída sem panic.
+Antes de esp_restart, LEDC é parado em nível baixo e GPIO22 mantido por hold.
+No boot, PWM inicia com duty zero antes de inicializar o painel; só então
+libera o hold. Após desenhar o primeiro quadro do menu, aguarda 40 ms para
+scanout e acende a iluminação em 100%. Reinicialização do painel fica oculta.
+Build ESP-IDF 5.4.4 OK; teste de encerramento verifica também ordem do apagamento
+após callbacks e antes do restart. Log: .debug_logs/final-doom-backlight-build.log.
+Firmware: build/Tab5FinalDoom.bin. Ainda pendente confirmação visual no aparelho.
+
+ENCERRAMENTO VALIDADO PELA SERIAL — 2026-10-05
+-------------------------------------------
+Instalação pelo launcher e boot do firmware corrigido observados na serial
+(ELF SHA prefixo aec6fea2a). Plutonia abriu, registrou 46.7 fps e saiu com
+"Quit complete; restarting to the campaign menu", sem abort/panic.
+Após retorno ao menu, TNT abriu, registrou 46.7 fps e saiu pelo mesmo caminho.
+Novo boot voltou a encontrar ambos os WADs no menu, sem abort/panic.
+O launcher registrou brownout no reboot da instalação, antes de iniciar o port.
+Persistem os dois timeouts do scan I2C, seguidos de inicialização normal.
+Log: .debug_logs/final-doom-quit-validation.log.
+Validação visual da transição e persistência efetiva dos saves não inferidas
+da serial; esta captura confirma carga e encerramento das duas campanhas.
+
+CORREÇÃO DO ENCERRAMENTO — 2026-10-05
+-----------------------------------
+Usuário confirmou abertura normal das duas campanhas e retorno ao menu,
+com tela azul ao sair. Captura do ciclo registrou TNT (18654796 bytes),
+render entre 38.8 e 46.7 fps, seguido de abort e SW_CPU_RESET na saída.
+Backtrace decodificado com o ELF correspondente: syscall_not_implemented_aborts.
+Causa: D_Endoom chamava exit(0), cujo _exit não é implementado no ESP-IDF.
+No ESP, D_Endoom agora retorna; I_Quit executa todos os callbacks e chama
+esp_restart() para retornar ao menu, evitando abort e retorno ao loop encerrado.
+Configurações continuam salvas pelos callbacks antes do reinício.
+Build ESP-IDF 5.4.4 OK: build/Tab5FinalDoom.bin (883760 bytes).
+Teste tests/test_quit.py passou com funções reais e reinício simulado.
+Log serial: .debug_logs/final-doom-exit-cycle.log.
+Log build: .debug_logs/final-doom-quit-build.log.
+Novo firmware ainda não instalado pelo assistente; validar saída no aparelho.
+
+PLUTONIA INICIALIZADO APÓS CORREÇÃO — 2026-10-05
+---------------------------------------------
+Após instalação pelo launcher observada na serial, novo boot do port
+(ELF SHA prefixo 9cf58b157) passou pelo ponto de falha do chdir.
+IWAD /sdcard/doom/plutonia.wad carregado: 17420824 bytes, 8990 ms em PSRAM.
+Engine identificou DOOM 2: Plutonia Experiment e comportamento Final Doom.
+Config/saves em /sdcard/doom/plutonia/; gráficos e eventos SFX inicializados.
+Render registrado entre 36.9 e 46.7 fps, PPA médio ~9.7 ms.
+Nenhum novo erro observado nesse trecho da execução do port.
+Antes do boot, launcher registrou TWDT não inicializado e brownout no reboot;
+USB reconectou. Houve timeouts no scan I2C, seguido de inicialização normal.
+TNT, saves/load e confirmação visual/áudio pelo usuário ainda pendentes.
+Log: .debug_logs/final-doom-serial-monitor.log.
+
+ERRO OBSERVADO NO APARELHO — CAMINHO DOS SAVES — 2026-10-05
+--------------------------------------------------------
+Serial confirmou firmware Tab5FinalDoom, display, teclado e montagem SD.
+Menu encontrou /sdcard/doom/plutonia.wad e /sdcard/doom/tnt.wad.
+Após seleção de Plutonia, chdir(/sdcard/doom/plutonia) retornou ENOSYS
+(Function not implemented); app_main retornou antes de iniciar o engine.
+Corrigido: removida dependência de chdir; doomEsp_savedir, config, saves e
+arquivo temporário já usam caminhos absolutos. Diretórios separados mantidos.
+Build corrigido OK com ESP-IDF 5.4.4: build/Tab5FinalDoom.bin.
+Log: .debug_logs/final-doom-savedir-build.log. O assistente não realizou flash;
+instalação pelo launcher e novo boot foram observados posteriormente na serial.
+Log da captura: .debug_logs/final-doom-serial-monitor.log.
+Esta captura não validou gameplay; testar novamente com firmware corrigido.
+
+FINAL DOOM — MENU DE CAMPANHA — 2026-10-05
+----------------------------------------
+Pasta criada como cópia de Tab5Doom, sem build, logs ou WAD legado.
+Projeto CMake: Tab5FinalDoom. Sem imagem SPIFFS no build.
+Menu RGB565 320x200 apresentado pelo mesmo PPA com rotação de 90 graus.
+Seleção por setas/1/2 + Enter, busca novamente com R.
+IWADs: /sdcard/doom/plutonia.wad e /sdcard/doom/tnt.wad (maiúsculas aceitas).
+Saves/config separados em /sdcard/doom/plutonia/ e /sdcard/doom/tnt/.
+Build completo OK com ESP-IDF 5.4.4: build/Tab5FinalDoom.bin (~863 KiB).
+O aplicativo ocupa 42% da partição de 2 MiB. Sem gravação no aparelho.
+Oito cenários de teste do menu passaram com stubs de plataforma e arquivos
+temporários: seleção, release, maiúsculas, ausente/inválido, retry de montagem,
+nova busca e falha de alocação. Testes: tests/test_menu.py.
+Log de build: .debug_logs/final-doom-build.log.
+Validação em hardware pendente. Histórico abaixo pertence à base Doom 1.
+
 FLASH TOTALMENTE APAGADA E REGRAVADA SEM SPIFFS — 2026-10-02
 -------------------------------------------------------
 Pedido explícito do usuário: apagar tudo, incluindo SPIFFS.

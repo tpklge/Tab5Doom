@@ -38,6 +38,11 @@
 
 #include "deh_str.h"
 #include "doomtype.h"
+#ifdef ESP_PLATFORM
+#include "esp_log.h"
+#include "esp_system.h"
+extern void p4_doom_prepare_restart(void);
+#endif
 #include "m_argv.h"
 #include "m_config.h"
 #include "m_misc.h"
@@ -256,6 +261,14 @@ void I_Quit (void)
         entry->func();
         entry = entry->next;
     }
+
+#ifdef ESP_PLATFORM
+    // All save callbacks have finished. Restart instead of falling through
+    // into the game loop after shutdown, or calling newlib's unsupported exit.
+    ESP_LOGI("FINAL_DOOM", "Quit complete; restarting to the campaign menu");
+    p4_doom_prepare_restart();
+    esp_restart();
+#endif
 
 #if ORIGCODE
     SDL_Quit();
@@ -575,4 +588,3 @@ boolean I_GetMemoryValue(unsigned int offset, void *value, int size)
 
     return false;
 }
-
