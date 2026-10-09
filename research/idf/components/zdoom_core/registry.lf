@@ -1,0 +1,31 @@
+[sections:zdoom_areg]
+entries:
+    zdoom.areg+
+[sections:zdoom_creg]
+entries:
+    zdoom.creg+
+[sections:zdoom_greg]
+entries:
+    zdoom.greg+
+[sections:zdoom_mreg]
+entries:
+    zdoom.mreg+
+[sections:zdoom_yreg]
+entries:
+    zdoom.yreg+
+[scheme:zdoom_registry]
+entries:
+    zdoom_areg -> dram0_data
+    zdoom_creg -> dram0_data
+    zdoom_greg -> dram0_data
+    zdoom_mreg -> dram0_data
+    zdoom_yreg -> dram0_data
+[mapping:zdoom_registry]
+archive: *
+entries:
+    * (zdoom_registry);
+        zdoom_areg -> dram0_data KEEP() SORT(name) ALIGN(4),
+        zdoom_creg -> dram0_data KEEP() SORT(name) ALIGN(4),
+        zdoom_greg -> dram0_data KEEP() SORT(name) ALIGN(4),
+        zdoom_mreg -> dram0_data KEEP() SORT(name) ALIGN(4),
+        zdoom_yreg -> dram0_data KEEP() SORT(name) ALIGN(4)

@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+project(Tab5ChexHostTools C CXX)
+get_filename_component(ZDOOM_ROOT "${CMAKE_CURRENT_LIST_DIR}/../zdoom-2.8.1" ABSOLUTE)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+add_subdirectory("${ZDOOM_ROOT}/tools/lemon" "lemon")
+add_subdirectory("${ZDOOM_ROOT}/tools/re2c" "re2c")

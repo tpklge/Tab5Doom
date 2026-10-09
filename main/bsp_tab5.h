@@ -94,6 +94,7 @@ typedef struct {
 
 /** Initialize display, touch and power management. */
 esp_err_t bsp_p4_init_hardware(bsp_p4_handles_t *handles);
+esp_err_t bsp_display_backlight_on(void);
 
 /** Mount SD card at /sdcard (optional; falls back to SPIFFS if absent). */
 esp_err_t bsp_sdcard_mount(void);

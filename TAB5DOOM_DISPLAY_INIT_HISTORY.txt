@@ -1,3 +1,10 @@
+HISTÓRICO HERDADO — TAB5FREEDOOM — 2026-10-05
+------------------------------------------
+Registros abaixo pertencem ao bring-up do display na base Doom 1.
+Tab5Freedoom mantém essa inicialização e o contorno de iluminação herdado
+do Final Doom: apagamento antes do restart e acendimento após o primeiro menu.
+Estado atual e validação: README.md e TAB5DOOM_PROGRESS.txt.
+
 FLASH TOTALMENTE APAGADA E REGRAVADA SEM SPIFFS — 2026-10-02
 -------------------------------------------------------
 Pedido explícito do usuário: apagar tudo, incluindo SPIFFS.
@@ -639,3 +646,8 @@ Limites do FIFO TX DSI:
   - Não há mecanismo automático de fragmentação no ESP-IDF v5.4.4
 
 ================================================================================
+
+2026-10-05 — ZDoom: apagar/segurar GPIO22 no início de I_Quit, antes dos
+callbacks de vídeo/áudio. Antes era feito após os callbacks, permitindo azul
+durante o fechamento. Primeiro frame do seletor mantém o reacendimento validado.
+Build preparado; transição visual ainda precisa ser confirmada no Tab5.

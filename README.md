@@ -1,123 +1,100 @@
-# Tab5Doom — M5Stack Tab5
+# Tab5CHEX — M5Stack Tab5
 
-Este aparelho usa o display **ST7123**, identificado pela versão 3 do controlador
-integrado em I2C `0x55`. O reset do touch usa P6 do expansor `0x43`; o LCD P4 é
-liberado como entrada com pull-up. A sequência ST7123 completa e os timings
-965 Mbps / DPI 70 MHz substituem a tentativa anterior com ST7703.
+Base de trabalho para portar **Chex Quest 1, 2 e 3 original**.
+Criada em 2026-10-05 como cópia da versão local validada de Tab5Freedoom.
+Projeto ESP-IDF: `Tab5CHEX`, alvo ESP32-P4, versão ESP-IDF 5.4.4.
 
-O DOOM usa a tela em paisagem, com rotação de 90° pelo PPA e proporção preservada.
-O teclado original **Tab5 Keyboard** conecta à **Ext.Port1**, em I2C `0x6D`
-(SDA GPIO0, SCL GPIO1). Controles:
+## Estado atual
 
-- **WASD ou setas:** andar e girar.
-- **Ctrl:** atirar. **E ou Espaço:** usar/abrir portas.
-- **Aa:** correr. **Alt + direção:** deslocamento lateral.
-- **Enter:** confirmar. **Esc:** menu. **1–7:** selecionar armas.
+A aplicação principal permanece como referência funcional da cópia Freedoom.
+O [projeto experimental ESP-IDF](research/idf/README.md) agora compila e liga
+ZDoom 2.8.1 com SD, sistema, relógio, framebuffer ST7123/PPA e teclado Tab5/USB.
+**Chex Quest 3 original v1.4 abriu E1M1 no Tab5**, confirmado pelo usuário,
+com aproximadamente 16–22 FPS na serial após a correção da pilha do renderer.
+O firmware atual acrescenta efeitos sonoros ES8388/I2S, com 16 vozes e saída
+PCM estéreo a 22050 Hz. Música permanece desativada.
 
-O SPIFFS contém `DOOM.WAD` completo com os três episódios. A tabela de
-partições reserva 2 MiB para o aplicativo e o restante da flash de 16 MiB
-para o SPIFFS em `0x210000`. O carregador aceita nomes de WAD maiúsculos e
-minúsculos; há compatibilidade com a barra de status, demos e recursos de menu
-dessa edição antiga. O WAD é copiado para PSRAM na inicialização (cerca de cinco
-segundos) para evitar leituras aleatórias lentas do SPIFFS durante o jogo.
+O binário e os arquivos do cartão estão em `build/chex3-bringup/`.
+A integração de áudio compilou e passou nos testes dos 84 efeitos originais,
+e o usuário confirmou som funcionando no aparelho. O menu de três jogos foi
+adicionado e compilado; sua seleção e o lançamento de Chex 1/2 ainda precisam
+de teste físico. Nenhum flash foi realizado.
 
-Para carregar pelo microSD, coloque o WAD em **`/doom/DOOM.WAD`** no cartão.
-Use FAT32. A busca prioriza a pasta `/doom`, depois a raiz do cartão e por último
-o SPIFFS. Em cada local, a ordem é `doom2.wad`, `doom.wad`, `doom1.wad`,
-aceitando também nomes maiúsculos. Quando o WAD está em `/doom`, configurações
-e saves também ficam nessa pasta. O mod opcional `chiquito.wad` deve ficar
-junto do WAD escolhido. O serial informa o caminho selecionado.
+WADs, fontes e avaliação do engine estão em
+[research/ANALISE_CHEX.md](research/ANALISE_CHEX.md).
 
-O mixer implementa efeitos sonoros a 11025 Hz; música ainda não é sintetizada.
-Os efeitos no alto-falante e a entrada na fase foram confirmados no aparelho.
-O amplificador usa P1 do expansor `0x43` em push-pull; o padrão de alta
-impedância impedia sua ativação. A inicialização inclui um tom curto de teste.
+Mantidos da base: display ST7123/MIPI e PPA, teclado Tab5/USB, áudio ES8388,
+leitura de WAD pelo microSD, nomes longos FAT, saves separados e saída por
+reinicialização controlada. A iluminação apaga antes do reinício e acende
+após desenhar o menu. Build, logs e downloads da base não foram copiados.
+Os projetos Tab5Freedoom e Tab5FinalDoom permanecem intactos.
 
-O serial mostra detecção do teclado e FPS/tempo de PPA a cada cinco segundos.
-O touch ST7123 ainda não está implementado como controle do jogo.
-Histórico de testes e resultados: `TAB5DOOM_PROGRESS.txt` e
-`TAB5DOOM_DISPLAY_INIT_HISTORY.txt`. Logs de diagnóstico ficam em `.debug_logs/`.
+## Compatibilidade e próximos trabalhos
 
-Compilar e gravar com ESP-IDF 5.4.4; após cada flash, acompanhar o serial:
+O objetivo é um menu com três opções e os dados na pasta `/doom` do microSD.
+Os arquivos exatos e argumentos serão definidos conforme a distribuição de
+cada jogo, incluindo dependências e patches; não basta trocar o nome do WAD.
 
-```sh
-idf.py -p /dev/cu.usbmodem101 build flash monitor
-```
+- **Chex Quest 1:** a base identifica `chex.wad` e possui comportamento
+  `exe_chex`. É necessário habilitar a aplicação de `chex.deh`: DEHACKED está
+  desativado e os arquivos de implementação desse suporte não estão na base.
+- **Chex Quest 2:** verificar a distribuição original e a relação entre o
+  WAD de expansão e os recursos do primeiro jogo antes de definir o lançamento.
+- **Chex Quest 3 original:** opção escolhida pelo usuário. O engine atual não
+  oferece os recursos de ZDoom necessários. Avaliar e portar outro engine,
+  preservando a camada de hardware validada. Não substituir por adaptação vanilla.
 
-Esse comando também grava o WAD do diretório `spiffs`. Para usar somente o
-microSD e deixar o SPIFFS apagado, após compilar execute:
+O [site oficial Chex Quest 3](https://www.chexquest3.com/about/) descreve
+as versões e os engines compatíveis. O tamanho dos dados é apenas uma parte
+da viabilidade: formatos de mapas, scripts, memória e dependências do engine
+precisam ser considerados antes de prometer execução no ESP32-P4.
 
-```sh
-esptool.py --chip esp32p4 -p /dev/cu.usbmodem101 erase_flash
-esptool.py --chip esp32p4 -p /dev/cu.usbmodem101 write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB 0x2000 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0x10000 build/Tab5Doom.bin
-idf.py -p /dev/cu.usbmodem101 monitor
-```
+A sequência de implementação será: identificar os pacotes originais; escolher
+um engine adequado e avaliar seu custo no P4; integrar display, entrada, áudio
+e armazenamento; definir o menu de três jogos e saves isolados; compilar e
+validar abertura, gameplay e saída de cada título no aparelho.
 
-O apagamento remove também o NVS. Com o firmware validado, a partição SPIFFS
-fica com **13,94 MiB vazios**, e o aplicativo tem **1,13 MiB de folga** dentro
-de sua partição. SPIFFS apagado não monta até receber uma imagem ou ser formatado;
-o jogo continua carregando do microSD.
+## Referências locais
 
-O driver ST7123 local deriva do driver Apache-2.0 da Espressif, com a tabela de
-inicialização do BSP M5Stack. O mapeamento do teclado deriva do
-[M5Unit-KEYBOARD](https://github.com/m5stack/M5Unit-KEYBOARD) (MIT).
+- `README_FREEDOOM_BASE.md`: uso e validação da versão de origem.
+- `TAB5FREEDOOM_BASE_HISTORY.txt`: histórico da base Freedoom.
+- `TAB5FINALDOOM_BASE_HISTORY.txt`: histórico anterior Final Doom.
+- `TAB5DOOM_DISPLAY_INIT_HISTORY.txt`: histórico herdado de inicialização do display.
+- `TAB5DOOM_PROGRESS.txt`: progresso desta versão CHEX.
 
----
+A cópia também preserva os metadados Git da base, incluindo seu remoto.
+Nenhum commit ou publicação foi realizado.
 
-# ESP32P4Doom
-![ESP32-P4](https://img.shields.io/badge/Platform-ESP32--P4-red.svg)
-![DOOM](https://img.shields.io/badge/Port-DOOM-orange.svg)
-![ESP-IDF](https://img.shields.io/badge/Framework-ESP--IDF%20v5.5-blue.svg)
+## Licenças
 
-A complete **independent bare-metal** DOOM port for the **ESP32-P4** microcontroller. Unlike other versions, this project is fully decoupled from official vendor BSP components, implementing its own lean hardware abstraction layer for maximum performance and control.
+O engine doomgeneric conserva seus avisos GPL-2.0-or-later. Os avisos de
+hardware estão em `main/THIRD_PARTY_NOTICES.txt`. Os dados dos jogos Chex não
+estão incluídos nesta pasta; sua distribuição e licença são independentes
+oferecidas por seus autores.
 
-## Key Improvements
-- **Decoupled Architecture**: Removed dependency on `esp32_p4_function_ev_board`. All hardware drivers (I2C, I2S, SDMMC) are implemented natively in `bsp_p4_eval.c`.
-- **SD Card WAD Loading**: Full support for loading `.wad` files from a MicroSD card. The system automatically searches both internal SPIFFS and the SD card.
-- **PPA Hardware Scaling**: Internal `320x200` rendering upscaled to `1024x600` MIPI DSI display via the ESP32-P4's **Pixel Processing Accelerator**, freeing the CPU for game logic.
-- **Micro-Mixer Audio**: A dedicated 16-bit PCM Software Mixer broadcasting over I2S to the onboard ES8311 codec for high-fidelity SFX.
-- **USB HID Support**: Direct plug-and-play support for standard USB keyboards.
+## Menu Chex 1, 2 e 3
 
-## Features
-- **Project Structure**: Cleaned and renamed entry point to `main.c`.
-- **Hardware Abstraction**: Custom `bsp_p4_eval` handles:
-  - **I2C**: Touch (GT911) and Audio Codec (ES8311) control.
-  - **I2S**: Standard Philips mode for audio data.
-  - **SDMMC**: High-speed 4-line SD card interface.
-- **Bilingual Cleanliness**: Codebase refactored with all comments and logs standardized to English.
+O firmware experimental inicia um seletor com setas/W/S ou teclas 1/2/3,
+Enter para jogar e R para buscar novamente os WADs. Todos usam ZDoom 2.8.1.
+Saída pelo menu do jogo reinicia a aplicação e retorna ao seletor, com o
+backlight apagado durante o reinício.
 
-## Game and Mod Loading (WADs)
-The engine features an automatic detection system for game files:
-- **With SD Card**: The system prioritizes reading from the root of a FAT32 MicroSD card. It looks for base games in this order: `doom2.wad` -> `doom.wad` -> `doom1.wad`.
-  - **Chiquito Mod**: If the file `chiquito.wad` is placed on the SD card alongside a base game, the engine will automatically load it as a PWAD (`-file`). This replaces the standard audio with the legendary sounds of Spanish comedian "Chiquito de la Calzada".
-- **Without SD Card**: If no SD card is detected, the engine falls back to the internal SPIFFS memory, loading the default DOOM 1 Shareware (`doom1.wad`).
+| Opção | Dados em /doom | Lançamento |
+| --- | --- | --- |
+| Chex Quest 1 original | chex.wad + zdoom.pk3 | -iwad chex.wad |
+| Chex Quest 2 original | chex.wad + chex2.wad + zdoom.pk3 | -iwad chex.wad -file chex2.wad |
+| Chex Quest 3 original v1.4 | chex3.wad + zdoom.pk3 | -iwad chex3.wad |
 
-## Missing Features / To-Do
-The following features are currently missing from this port:
-- **Network** (Multiplayer)
-- **Music**
+Cada seleção inicia E1M1 e usa chex1/2/3-zdoom.ini e chex1/2/3-saves,
+respectivamente. A configuração e os saves antigos de Chex 3 permanecem em
+chex-zdoom.ini e chex-saves; não são migrados automaticamente.
 
-## Requirements
-* ESP32-P4-Function-EV-Board (or custom P4 hardware with similar pinout).
-* USB Keyboard (connected via USB-H port).
+A identificação nativa de Chex 1 está em wadsrc/static/iwadinfo.txt do ZDoom;
+Chex 2 é carregado como expansão da base Chex 1. A distribuição original de
+Chex 2 ainda não foi auditada localmente nem testada no aparelho. Ausência de
+chex2.wad desabilita somente essa seleção. Não usamos os episódios de Chex 3
+como substitutos dos arquivos originais de Chex 1/2.
 
-## Build and Flashing
-1. **WAD Location**: Place your `.wad` files on the SD card or flash them to the `spiffs` partition.
-2. **Compile and Flash**:
-```bash
-idf.py build flash monitor
-```
-
-## About the Developer
-Developed and optimized for the ESP32-P4 by **Alejandro Villegas Alonso**.
-If you are interested in embedded systems, ESP-IDF development, or want to discuss professional opportunities, feel free to connect!
-
-* 👔 [Alejandro Villegas Alonso on LinkedIn](https://www.linkedin.com/in/alejandro-villegas-alonso-825041b1)
-
-## Credits and Acknowledgements
-* **[doomgeneric](https://github.com/ozkl/doomgeneric)**: The portable engine core by *ozkl*.
-* **[id Software](https://github.com/id-Software/DOOM)**: The original legends of gaming.
-* **[Espressif Systems](https://github.com/espressif)**: For the powerful P4 chip and IDF framework.
-
-## License
-Licensed under GPLv2.
+O pacote inclui chex.wad e chex3.wad; fornecer chex2.wad original no cartão.
+A validação do menu verifica assinatura IWAD/PWAD e limites do diretório;
+a compatibilidade e os limites individuais dos lumps são tratados pelo engine.

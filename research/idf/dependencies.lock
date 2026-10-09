@@ -1,0 +1,35 @@
+dependencies:
+  espressif/cmake_utilities:
+    component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.3
+  espressif/esp_io_expander:
+    dependencies: []
+    source:
+      path: /Users/paludo/Documents/PlatformIO/Projects/Tab5CHEX/managed_components/espressif__esp_io_expander
+      type: local
+    version: 1.2.1
+  espressif/esp_lcd_touch:
+    dependencies: []
+    source:
+      path: /Users/paludo/Documents/PlatformIO/Projects/Tab5CHEX/managed_components/espressif__esp_lcd_touch
+      type: local
+    version: 1.2.1
+  idf:
+    source:
+      type: idf
+    version: 5.4.4
+direct_dependencies:
+- espressif/cmake_utilities
+- espressif/esp_io_expander
+- espressif/esp_lcd_touch
+- idf
+manifest_hash: 3e731e5da8bcb99b184ecf0d270ca8b1daed5bdf0ead957c3644fc5552543811
+target: esp32p4
+version: 2.0.0

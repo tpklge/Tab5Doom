@@ -1,11 +1,11 @@
 #include "doomEsp.h"
+#include "freedoom_menu.h"
 #include "doomgeneric.h"
 #include "doomkeys.h"
 #include "driver/ppa.h"
 #include "esp_cache.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
-#include "esp_spiffs.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -13,7 +13,10 @@
 #include "usb/hid_host.h"
 #include "usb/hid_usage_keyboard.h"
 #include "usb/usb_host.h"
+#include <errno.h>
 #include <stdio.h>
+#include <strings.h>
+#include <sys/stat.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -27,7 +30,7 @@ static float g_scale;
 
 static const char *TAG = "DOOM_ESP";
 
-char doomEsp_savedir[32] = "/spiffs";
+char doomEsp_savedir[32] = "/sdcard/doom/";
 
 #define DOOM_W 320
 #define DOOM_H 200
@@ -65,6 +68,13 @@ void p4_doom_draw_frame(const uint32_t *buffer) {
   };
 
   ESP_ERROR_CHECK(ppa_do_scale_rotate_mirror(ppa_client, &srm_config));
+  static bool backlight_on;
+  if (!backlight_on) {
+    /* Let the scanout present a complete menu frame before illuminating it. */
+    vTaskDelay(pdMS_TO_TICKS(40));
+    ESP_ERROR_CHECK(bsp_display_backlight_on());
+    backlight_on = true;
+  }
   // Both PPA and LCD access RAM by DMA; no CPU writeback of the full
   // 1.84 MB output framebuffer is required after this operation.
   static int64_t report_start;
@@ -332,7 +342,7 @@ int p4_doom_get_key(int *pressed, unsigned char *key) {
 #include "doomEsp_sound.h"
 
 void doomEsp_Start(bsp_p4_handles_t bsp_handles, uint16_t *frame_buffer) {
-  ESP_LOGI(TAG, "Starting DOOM on ESP32-P4 with USB Keyboard support...");
+  ESP_LOGI(TAG, "Starting Freedoom on ESP32-P4...");
 
   global_frame_buffer = frame_buffer;
   g_bsp_handles = bsp_handles;
@@ -363,18 +373,13 @@ void doomEsp_Start(bsp_p4_handles_t bsp_handles, uint16_t *frame_buffer) {
       tab5_keyboard_task, "tab5_keyboard", 4096, NULL, 2, NULL, 0);
   assert(keyboard_created == pdPASS);
 
-  // 1. Initialize SPIFFS Subsystem
-  esp_vfs_spiffs_conf_t spiffs_conf = {.base_path = "/spiffs",
-                                       .partition_label = "spiffs",
-                                       .max_files = 5,
-                                       .format_if_mount_failed = false};
-  if (esp_vfs_spiffs_register(&spiffs_conf) == ESP_OK) {
-    ESP_LOGI(TAG, "SPIFFS mounted OK.");
-  }
-
   // 2. Framebuffer Queue and Hardware PPA
   doom_rb565 = (uint16_t *)heap_caps_aligned_alloc(64, DOOM_W * DOOM_H * 2,
-                                                   MALLOC_CAP_INTERNAL);
+                                                   MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!doom_rb565) {
+    ESP_LOGE(TAG, "Not enough internal RAM for RGB565 staging");
+    return;
+  }
 
   ppa_client_config_t ppa_config = {.oper_type = PPA_OPERATION_SRM};
   ESP_ERROR_CHECK(ppa_register_client(&ppa_config, &ppa_client));
@@ -399,92 +404,26 @@ void doomEsp_Start(bsp_p4_handles_t bsp_handles, uint16_t *frame_buffer) {
   // Initialize Sound Engine
   doomEsp_SoundInit();
 
-  // 3.5 Initialize SD Card (optional)
-  char *iwad_path = NULL;
-  static char *const flash_iwads[] = {
-      "/spiffs/doom2.wad", "/spiffs/DOOM2.WAD",
-      "/spiffs/doom.wad", "/spiffs/DOOM.WAD",
-      "/spiffs/doom1.wad", "/spiffs/DOOM1.WAD",
-  };
-  for (unsigned i = 0; i < sizeof(flash_iwads) / sizeof(flash_iwads[0]); i++) {
-    FILE *candidate = fopen(flash_iwads[i], "rb");
-    if (candidate) {
-      iwad_path = flash_iwads[i];
-      fclose(candidate);
-      break;
-    }
-  }
-  char *pwad_path = NULL;                // optional PWAD
+  // Select only the Freedoom campaigns from /doom on microSD.
+  const char *iwad_path = freedoom_select_wad(p4_doom_draw_frame, p4_doom_get_key,
+                                               bsp_sdcard_mount);
+  if (!iwad_path) return;
+  xQueueReset(doom_key_queue);
 
-  if (bsp_sdcard_mount() == ESP_OK) {
-    ESP_LOGI(TAG,
-             "SD Card mounted successfully at /sdcard. Searching for WADs...");
-    chdir("/sdcard");
-    strcpy(doomEsp_savedir, "/sdcard/");
-    static char *const sd_iwads[] = {
-        "/sdcard/doom/doom2.wad", "/sdcard/doom/DOOM2.WAD",
-        "/sdcard/doom/doom.wad", "/sdcard/doom/DOOM.WAD",
-        "/sdcard/doom/doom1.wad", "/sdcard/doom/DOOM1.WAD",
-        "/sdcard/doom2.wad", "/sdcard/DOOM2.WAD",
-        "/sdcard/doom.wad", "/sdcard/DOOM.WAD",
-        "/sdcard/doom1.wad", "/sdcard/DOOM1.WAD",
-    };
-    bool found_sd_iwad = false;
-    bool in_doom_folder = false;
-    for (unsigned i = 0; i < sizeof(sd_iwads) / sizeof(sd_iwads[0]); i++) {
-      FILE *candidate = fopen(sd_iwads[i], "rb");
-      if (!candidate) continue;
-      fclose(candidate);
-      iwad_path = sd_iwads[i];
-      found_sd_iwad = true;
-      in_doom_folder = i < 6;
-      ESP_LOGI(TAG, "Found SD IWAD: %s", iwad_path);
-      break;
-    }
-    if (!found_sd_iwad) {
-      ESP_LOGW(TAG, "No base IWAD in SD /doom or root. Using internal Flash.");
-    } else {
-      // Keep optional mods alongside the selected SD IWAD.
-      char *const mods_folder[] = {"/sdcard/doom/chiquito.wad", "/sdcard/doom/CHIQUITO.WAD"};
-      char *const mods_root[] = {"/sdcard/chiquito.wad", "/sdcard/CHIQUITO.WAD"};
-      char *const *mods = in_doom_folder ? mods_folder : mods_root;
-      for (unsigned i = 0; i < 2; i++) {
-        FILE *candidate = fopen(mods[i], "rb");
-        if (!candidate) continue;
-        fclose(candidate);
-        pwad_path = mods[i];
-        ESP_LOGI(TAG, "Found PWAD: %s", pwad_path);
-        break;
-      }
-      if (in_doom_folder) {
-        chdir("/sdcard/doom");
-        strcpy(doomEsp_savedir, "/sdcard/doom/");
-      }
-    }
-  } else {
-    ESP_LOGW(
-        TAG,
-        "No SD card detected (or mount failed). Fallback to internal SPIFFS.");
-    chdir("/spiffs");
-    strcpy(doomEsp_savedir, "/spiffs/");
-  }
-
-  if (!iwad_path) {
-    ESP_LOGE(TAG, "No readable IWAD found in SPIFFS or SD");
+  const char *name = strrchr(iwad_path, '/') + 1;
+  const char *campaign = strcasecmp(name, "freedoom1.wad") == 0 ? "freedoom1" : "freedoom2";
+  char save_folder[32];
+  snprintf(save_folder, sizeof(save_folder), "/sdcard/doom/%s", campaign);
+  if (mkdir(save_folder, 0775) != 0 && errno != EEXIST) {
+    ESP_LOGE(TAG, "Cannot create save directory %s: %s", save_folder, strerror(errno));
     return;
   }
-  ESP_LOGI(TAG, "Starting DOOM. IWAD: %s, PWAD: %s", iwad_path,
-           pwad_path ? pwad_path : "None");
+  // ESP-IDF FAT VFS may not implement chdir; config and saves use absolute paths.
+  snprintf(doomEsp_savedir, sizeof(doomEsp_savedir), "/sdcard/doom/%s/", campaign);
+  ESP_LOGI(TAG, "Starting Freedoom. IWAD: %s, saves: %s", iwad_path, doomEsp_savedir);
 
-  // 4. Boot DOOM
-  if (pwad_path) {
-    char *doom_argv[] = {"doom",    "-iwad",    iwad_path, "-file",
-                         pwad_path, "-gfxmode", "rgb565"};
-    doomgeneric_Create(7, doom_argv);
-  } else {
-    char *doom_argv[] = {"doom", "-iwad", iwad_path, "-gfxmode", "rgb565"};
-    doomgeneric_Create(5, doom_argv);
-  }
+  char *doom_argv[] = {"doom", "-iwad", (char *)iwad_path, "-gfxmode", "rgb565"};
+  doomgeneric_Create(5, doom_argv);
 
   while (1) {
     doomgeneric_Tick();

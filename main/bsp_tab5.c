@@ -22,6 +22,7 @@
 #include "driver/i2c_master.h"
 #include "driver/i2s_std.h"
 #include "driver/ledc.h"
+#include "esp_check.h"
 #include "driver/sdmmc_host.h"
 #include "esp_codec_dev.h"
 #include "esp_codec_dev_defaults.h"
@@ -131,10 +132,25 @@ static esp_err_t init_backlight(void)
         .speed_mode = LEDC_LOW_SPEED_MODE,
         .channel    = LEDC_CHANNEL_1,
         .timer_sel  = LEDC_TIMER_1,
-        .duty       = 4095,   /* 100% brightness */
+        .duty       = 0,      /* Keep dark until the first menu frame is ready. */
         .hpoint     = 0,
     };
-    return ledc_channel_config(&chan);
+    ESP_RETURN_ON_ERROR(ledc_channel_config(&chan), TAG, "backlight config failed");
+    return gpio_hold_dis(LCD_BACKLIGHT_GPIO);
+}
+
+esp_err_t bsp_display_backlight_on(void)
+{
+    ESP_RETURN_ON_ERROR(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 4095),
+                        TAG, "backlight duty failed");
+    return ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
+}
+
+void p4_doom_prepare_restart(void)
+{
+    ESP_ERROR_CHECK(ledc_stop(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 0));
+    ESP_ERROR_CHECK(gpio_hold_en(LCD_BACKLIGHT_GPIO));
+    ESP_LOGI(TAG, "Backlight off and GPIO held for restart");
 }
 
 /* -------------------------------------------------------------------------
@@ -199,6 +215,10 @@ esp_err_t bsp_p4_init_hardware(bsp_p4_handles_t *handles)
     if (!handles) return ESP_ERR_INVALID_ARG;
     esp_err_t ret;
 
+    /* Configure the off state before releasing any hold from the last quit. */
+    ret = init_backlight();
+    if (ret != ESP_OK) return ret;
+
     /* 1. Internal LDO for MIPI DPHY */
     ret = enable_dsi_phy_power(&handles->ldo_handle);
     if (ret != ESP_OK) return ret;
@@ -256,9 +276,6 @@ esp_err_t bsp_p4_init_hardware(bsp_p4_handles_t *handles)
                  version, esp_err_to_name(result));
         ESP_ERROR_CHECK(i2c_master_bus_rm_device(tddi));
     }
-    ret = init_backlight();
-    if (ret != ESP_OK) return ret;
-
     /* 6. MIPI DSI bus */
     ESP_LOGI(TAG, "Configuring MIPI DSI bus at %d Mbps...", LCD_BITRATE_MBPS);
     esp_lcd_dsi_bus_handle_t dsi_bus = NULL;

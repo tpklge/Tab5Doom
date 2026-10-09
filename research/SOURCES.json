@@ -1,0 +1,125 @@
+{
+  "date": "2026-10-05",
+  "engine_candidate": {
+    "repository": "https://github.com/rheit/zdoom",
+    "tag": "2.8.1",
+    "commit": "1a9bc53d84b5cceb567fd8246c44984aac88388a",
+    "status": "candidato para protótipo, sem firmware jogável"
+  },
+  "downloads": [
+    {
+      "url": "https://www.chexquest3.com/downloads/chex.zip",
+      "local_file": "research/assets/chex.zip",
+      "bytes": 3773924,
+      "sha256": "df8e391b0f802f82ac9b71ec4faea4b1cd858097d04eb70aff2d1a39150e0419",
+      "checksum_status": "hash calculado localmente; site não forneceu checksum independente"
+    },
+    {
+      "url": "https://www.chexquest3.com/downloads/ChexQuest3_v1.4.zip",
+      "local_file": "research/assets/ChexQuest3_v1.4.zip",
+      "bytes": 9088704,
+      "sha256": "29abab521cf9de4cc561afb84cf804793d90f1cf40f6384e19b34f72923dd446",
+      "checksum_status": "hash calculado localmente; site não forneceu checksum independente"
+    }
+  ],
+  "compile_probe": {
+    "architecture": "RV32IMAFC / ilp32f",
+    "compiler": "riscv32-esp-elf-g++ ESP-IDF 5.4.4 toolchain",
+    "compiled_objects": [
+      "fixed_probe.o",
+      "sfmt.o",
+      "file_wad.o",
+      "r_draw.o"
+    ],
+    "linked": false,
+    "executed_on_device": false,
+    "full_engine_memory_unknown": true,
+    "r_draw_bss_bytes": 146528
+  },
+  "idf_experiment": {
+    "project": "research/idf",
+    "selected_units": 269,
+    "core_archive_compiled": true,
+    "full_engine_linked": true,
+    "game_initialized": false,
+    "flashed": false,
+    "harness_binary_bytes": 2949200,
+    "resources": {
+      "engine_commit": "1a9bc53d84b5cceb567fd8246c44984aac88388a",
+      "package_files": 584,
+      "package_bytes": 634800,
+      "package_sha256": "d6486b561a11249d34fb0d00208312cc9255a5a954a44a4e726f6ca5ed6e8b78"
+    },
+    "remaining_archive_external_symbols": 274,
+    "platform_named_symbols": 49,
+    "compression": {
+      "libraries": [
+        "zlib",
+        "bzip2",
+        "LZMA/7z",
+        "JPEG",
+        "gdtoa"
+      ],
+      "source_units": 59,
+      "native_regression_passed": true,
+      "target_compiled_and_linked": true,
+      "executed_on_device": false,
+      "native_regression_scope": [
+        "zlib",
+        "bzip2",
+        "LZMA/7z"
+      ]
+    },
+    "timing": {
+      "backend": "esp_timer + FreeRTOS",
+      "tic_rate": 35,
+      "native_regression_passed": true,
+      "target_compiled_and_linked": true,
+      "executed_on_device": false
+    },
+    "bootstrap_implemented": true,
+    "device_validated": false,
+    "registrations": {
+      "A": {
+        "head": "0x4ff1c200",
+        "tail": "0x4ff1cbc0",
+        "pointer_slots": 623
+      },
+      "C": {
+        "head": "0x4ff1cbc4",
+        "tail": "0x4ff1d058",
+        "pointer_slots": 292
+      },
+      "G": {
+        "head": "0x4ff1d05c",
+        "tail": "0x4ff1d370",
+        "pointer_slots": 196
+      },
+      "M": {
+        "head": "0x4ff1d374",
+        "tail": "0x4ff1d408",
+        "pointer_slots": 36
+      },
+      "Y": {
+        "head": "0x4ff1d40c",
+        "tail": "0x4ff1d4c4",
+        "pointer_slots": 45
+      }
+    },
+    "remaining_archive_external_symbols_note": "historical archive-only inventory; full link now resolves all symbols",
+    "firmware_manifest": "build/chex3-bringup/MANIFEST.json",
+    "device_trial": {
+      "result": "crash in CheckCmdLine at null StartScreen",
+      "serial_log": ".debug_logs/chex3-20261005-062450.log",
+      "pc": "0x4002c212",
+      "fix": "CreateInstance now allocates upstream FStartupScreen",
+      "fix_device_validated": false,
+      "startscreen_fix_validated": true,
+      "latest_result": "E1M1 visible, then main stack protection fault in wallscan_np2",
+      "latest_fix": "ESP MAXWIDTH/MAXHEIGHT limited to 320/200; renderer max compiler frame now 2016 bytes",
+      "first_frame_confirmed": true,
+      "visible_e1m1_user_confirmed": true
+    },
+    "stack_audit": "research/STACK_AUDIT.json"
+  }
+}

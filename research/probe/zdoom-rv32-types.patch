@@ -1,0 +1,435 @@
+diff --git a/src/__autostart.cpp b/src/__autostart.cpp
+index 6ed85ae..2ee081a 100644
+--- a/src/__autostart.cpp
++++ b/src/__autostart.cpp
+@@ -88,6 +88,19 @@ void *YRegHead = 0;
+ 
+ #include "doomtype.h"
+ 
++#ifdef ESP_PLATFORM
++#undef SECTION_AREG
++#define SECTION_AREG "zdoom.areg.0"
++#undef SECTION_CREG
++#define SECTION_CREG "zdoom.creg.0"
++#undef SECTION_GREG
++#define SECTION_GREG "zdoom.greg.0"
++#undef SECTION_MREG
++#define SECTION_MREG "zdoom.mreg.0"
++#undef SECTION_YREG
++#define SECTION_YREG "zdoom.yreg.0"
++#endif
++
+ void *ARegHead __attribute__((section(SECTION_AREG))) = 0;
+ void *CRegHead __attribute__((section(SECTION_CREG))) = 0;
+ void *GRegHead __attribute__((section(SECTION_GREG))) = 0;
+diff --git a/src/basictypes.h b/src/basictypes.h
+index 3aa4f46..885e99c 100644
+--- a/src/basictypes.h
++++ b/src/basictypes.h
+@@ -17,8 +17,15 @@ typedef int8_t					SBYTE;
+ typedef uint8_t					BYTE;
+ typedef int16_t					SWORD;
+ typedef uint16_t				WORD;
++#if defined(ESP_PLATFORM) && defined(__riscv)
++// RV32 Newlib uses long for int32_t; renderer templates expect int.
++static_assert(sizeof(int) == 4, "ZDoom requires 32-bit int");
++typedef signed int SDWORD;
++typedef unsigned int uint32;
++#else
+ typedef int32_t					SDWORD;
+ typedef uint32_t				uint32;
++#endif
+ typedef int64_t					SQWORD;
+ typedef uint64_t				QWORD;
+ #endif
+diff --git a/src/c_cmds.cpp b/src/c_cmds.cpp
+index 233c31d..4f9610f 100644
+--- a/src/c_cmds.cpp
++++ b/src/c_cmds.cpp
+@@ -98,12 +98,24 @@ bool CheckCheatmode (bool printmsg)
+ 
+ CCMD (quit)
+ {
+-	if (!insave) exit (0);
++	if (!insave) {
++#ifdef ESP_PLATFORM
++        I_Quit();
++#else
++        exit(0);
++#endif
++    }
+ }
+ 
+ CCMD (exit)
+ {
+-	if (!insave) exit (0);
++	if (!insave) {
++#ifdef ESP_PLATFORM
++        I_Quit();
++#else
++        exit(0);
++#endif
++    }
+ }
+ 
+ /*
+diff --git a/src/cmdlib.cpp b/src/cmdlib.cpp
+index b3c406e..a387611 100644
+--- a/src/cmdlib.cpp
++++ b/src/cmdlib.cpp
+@@ -6,8 +6,10 @@
+ #else
+ #include <unistd.h>
+ #include <sys/types.h>
++#ifndef ESP_PLATFORM
+ #include <pwd.h>
+-#if !defined(__sun)
++#endif
++#if !defined(__sun) && !defined(ESP_PLATFORM)
+ #include <fts.h>
+ #endif
+ #endif
+@@ -853,7 +855,7 @@ FString ExpandEnvVars(const char *searchpathstring)
+ 
+ FString NicePath(const char *path)
+ {
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(ESP_PLATFORM)
+ 	return ExpandEnvVars(path);
+ #else
+ 	if (path == NULL || *path == '\0')
+@@ -957,7 +959,7 @@ void ScanDirectory(TArray<FFileList> &list, const char *dirpath)
+ 	}
+ }
+ 
+-#elif defined(__sun) || defined(__linux__)
++#elif defined(__sun) || defined(__linux__) || defined(ESP_PLATFORM)
+ 
+ //==========================================================================
+ //
+diff --git a/src/d_main.cpp b/src/d_main.cpp
+index 7bfb187..86303ba 100644
+--- a/src/d_main.cpp
++++ b/src/d_main.cpp
+@@ -1597,6 +1597,26 @@ void D_AddConfigWads (TArray<FString> &wadfiles, const char *section)
+ 
+ static void D_AddDirectory (TArray<FString> &wadfiles, const char *dir)
+ {
++#ifdef ESP_PLATFORM
++    // FAT VFS has no working chdir; keep all directory operations absolute.
++    DIR *directory = opendir(dir);
++    if (directory == NULL) return;
++    struct dirent *entry;
++    while ((entry = readdir(directory)) != NULL)
++    {
++        if (entry->d_name[0] == '.') continue;
++        const char *extension = strrchr(entry->d_name, '.');
++        if (extension == NULL || stricmp(extension, ".wad") != 0) continue;
++        FString path = dir;
++        if (path.Len() > 0 && path[path.Len() - 1] != '/') path += "/";
++        path += entry->d_name;
++        struct stat info;
++        if (stat(path.GetChars(), &info) == 0 && S_ISREG(info.st_mode))
++            D_AddFile(wadfiles, path.GetChars());
++    }
++    closedir(directory);
++#else
++
+ 	char curdir[PATH_MAX];
+ 
+ 	if (getcwd (curdir, PATH_MAX))
+@@ -1633,6 +1653,7 @@ static void D_AddDirectory (TArray<FString> &wadfiles, const char *dir)
+ 		}
+ 		chdir (curdir);
+ 	}
++#endif
+ }
+ 
+ 
+diff --git a/src/doomtype.h b/src/doomtype.h
+index 668822a..0e9e0a4 100644
+--- a/src/doomtype.h
++++ b/src/doomtype.h
+@@ -220,6 +220,12 @@ char ( &_ArraySizeHelper( T (&array)[N] ))[N];
+ #define SECTION_GREG "__DATA,greg"
+ #define SECTION_MREG "__DATA,mreg"
+ #define SECTION_YREG "__DATA,yreg"
++#elif defined(ESP_PLATFORM)
++#define SECTION_AREG "zdoom.areg.1"
++#define SECTION_CREG "zdoom.creg.1"
++#define SECTION_GREG "zdoom.greg.1"
++#define SECTION_MREG "zdoom.mreg.1"
++#define SECTION_YREG "zdoom.yreg.1"
+ #else
+ #define SECTION_AREG "areg"
+ #define SECTION_CREG "creg"
+diff --git a/src/dthinker.cpp b/src/dthinker.cpp
+index 9ab8d5e..af33462 100644
+--- a/src/dthinker.cpp
++++ b/src/dthinker.cpp
+@@ -221,7 +221,7 @@ DThinker::DThinker (int statnum) throw()
+ 
+ DThinker::DThinker(no_link_type foo) throw()
+ {
+-	foo;	// Avoid unused argument warnings.
++	(void)foo;	// Avoid unused argument warnings.
+ }
+ 
+ DThinker::~DThinker ()
+diff --git a/src/fragglescript/t_func.cpp b/src/fragglescript/t_func.cpp
+index be838d5..8ddc62d 100644
+--- a/src/fragglescript/t_func.cpp
++++ b/src/fragglescript/t_func.cpp
+@@ -499,7 +499,7 @@ DFsSection *FParser::looping_section()
+ 					if(!best || (current->start_index > best->start_index))
+ 						best = current;     // save it
+ 				}
+-				current = current->next;
++			current = current->next;
+ 		}
+ 	}
+ 	
+diff --git a/src/m_alloc.cpp b/src/m_alloc.cpp
+index e81a5ce..69fa0c2 100644
+--- a/src/m_alloc.cpp
++++ b/src/m_alloc.cpp
+@@ -62,6 +62,10 @@
+ #if !defined(__sun)
+ void *M_Malloc(size_t size)
+ {
++#ifdef ESP_PLATFORM
++    // Newlib may return NULL for zero bytes; legacy callers require a valid block.
++    if (size == 0) size = 1;
++#endif
+ 	void *block = malloc(size);
+ 
+ 	if (block == NULL)
+@@ -73,6 +77,10 @@ void *M_Malloc(size_t size)
+ 
+ void *M_Realloc(void *memblock, size_t size)
+ {
++#ifdef ESP_PLATFORM
++    // Avoid realloc(ptr, 0) freeing the block and returning NULL.
++    if (size == 0) size = 1;
++#endif
+ 	if (memblock != NULL)
+ 	{
+ 		GC::AllocBytes -= _msize(memblock);
+diff --git a/src/p_ceiling.cpp b/src/p_ceiling.cpp
+index 24ab121..c54cd90 100644
+--- a/src/p_ceiling.cpp
++++ b/src/p_ceiling.cpp
+@@ -198,7 +198,7 @@ void DCeiling::Tick ()
+ 				case ceilLowerAndCrushDist:
+ 					if (m_Speed1 == FRACUNIT && m_Speed2 == FRACUNIT)
+ 						m_Speed = FRACUNIT / 8;
+-						break;
++					break;
+ 
+ 				default:
+ 					break;
+diff --git a/src/p_udmf.cpp b/src/p_udmf.cpp
+index 9cfcbc0..84d259b 100644
+--- a/src/p_udmf.cpp
++++ b/src/p_udmf.cpp
+@@ -103,7 +103,8 @@ static char HexenSectorSpecialOk[256]={
+ static inline bool P_IsThingSpecial(int specnum)
+ {
+ 	return (specnum >= Thing_Projectile && specnum <= Thing_SpawnNoFog) ||
+-			specnum == Thing_SpawnFacing || Thing_ProjectileIntercept || Thing_ProjectileAimed;
++			specnum == Thing_SpawnFacing || specnum == Thing_ProjectileIntercept ||
++			specnum == Thing_ProjectileAimed;
+ }
+ 
+ enum
+diff --git a/src/posix/i_system.h b/src/posix/i_system.h
+index 3915036..01288ff 100644
+--- a/src/posix/i_system.h
++++ b/src/posix/i_system.h
+@@ -143,6 +143,9 @@ struct findstate_t
+     int count;
+     struct dirent **namelist;
+     int current;
++#ifdef ESP_PLATFORM
++    void *platform_context;
++#endif
+ };
+ 
+ void *I_FindFirst (const char *filespec, findstate_t *fileinfo);
+@@ -158,6 +161,7 @@ int I_FindAttr (findstate_t *fileinfo);
+ #define FA_DIREC	8
+ #define FA_ARCH		16
+ 
++#ifndef ESP_PLATFORM
+ static inline char *strlwr(char *str)
+ {
+ 	char *ptr = str;
+@@ -168,5 +172,6 @@ static inline char *strlwr(char *str)
+ 	}
+ 	return str;
+ }
++#endif // Newlib provides strlwr on ESP-IDF
+ 
+ #endif
+diff --git a/src/r_defs.h b/src/r_defs.h
+index b6021a4..c6c7633 100644
+--- a/src/r_defs.h
++++ b/src/r_defs.h
+@@ -38,8 +38,15 @@
+ 
+ #include "dthinker.h"
+ 
++#ifdef ESP_PLATFORM
++// The Tab5 backend exposes only 320x200. Desktop-sized scratch arrays
++// exceed the FreeRTOS stack before the first world frame is rendered.
++#define MAXWIDTH 320
++#define MAXHEIGHT 200
++#else
+ #define MAXWIDTH 5760
+ #define MAXHEIGHT 3600
++#endif
+ 
+ const WORD NO_INDEX = 0xffffu;
+ const DWORD NO_SIDE = 0xffffffffu;
+diff --git a/src/r_plane.cpp b/src/r_plane.cpp
+index 8238ade..64ce0b5 100644
+--- a/src/r_plane.cpp
++++ b/src/r_plane.cpp
+@@ -254,8 +254,8 @@ extern "C" {
+ void STACK_ARGS R_CalcTiltedLighting (fixed_t lval, fixed_t lend, int width)
+ {
+ 	fixed_t lstep;
+-	BYTE *lightfiller;
+ 	BYTE *basecolormapdata = basecolormap->Maps;
++	BYTE *lightfiller = basecolormapdata;
+ 	int i = 0;
+ 
+ 	if (width == 0 || lval == lend)
+diff --git a/src/resourcefiles/file_directory.cpp b/src/resourcefiles/file_directory.cpp
+index 8b85425..de26d8a 100644
+--- a/src/resourcefiles/file_directory.cpp
++++ b/src/resourcefiles/file_directory.cpp
+@@ -41,7 +41,7 @@
+ #define stat _stat
+ #else
+ #include <dirent.h>
+-#ifndef __sun
++#if !defined(__sun) && !defined(ESP_PLATFORM)
+ #include <fts.h>
+ #endif
+ #endif
+@@ -185,7 +185,7 @@ int FDirectory::AddDirectory(const char *dirpath)
+ 	return count;
+ }
+ 
+-#elif defined(__sun) || defined(__APPLE__)
++#elif defined(__sun) || defined(__APPLE__) || defined(ESP_PLATFORM)
+ 
+ int FDirectory::AddDirectory(const char *dirpath)
+ {
+diff --git a/src/resourcefiles/file_zip.cpp b/src/resourcefiles/file_zip.cpp
+index c7e787c..39c418d 100644
+--- a/src/resourcefiles/file_zip.cpp
++++ b/src/resourcefiles/file_zip.cpp
+@@ -123,7 +123,8 @@ private:
+ 	virtual int GetFileOffset() 
+ 	{ 
+ 		if (Method != METHOD_STORED) return -1;
+-		if (Flags & LUMPFZIP_NEEDFILESTART) SetLumpAddress(); return Position; 
++		if (Flags & LUMPFZIP_NEEDFILESTART) SetLumpAddress();
++		return Position;
+ 	}
+ };
+ 
+diff --git a/src/sc_man.cpp b/src/sc_man.cpp
+index 9babe2e..c5038ab 100644
+--- a/src/sc_man.cpp
++++ b/src/sc_man.cpp
+@@ -426,7 +426,7 @@ bool FScanner::ScanString (bool tokens)
+ 	LastGotLine = Line;
+ 
+ 	// In case the generated scanner does not use marker, avoid compiler warnings.
+-	marker;
++	(void)marker;
+ #include "sc_man_scanner.h"
+ 	LastGotToken = tokens;
+ 	return return_val;
+diff --git a/src/sound/i_sound.cpp b/src/sound/i_sound.cpp
+index 8997c91..02f1f82 100644
+--- a/src/sound/i_sound.cpp
++++ b/src/sound/i_sound.cpp
+@@ -82,7 +82,9 @@ CVAR (Int, snd_samplerate, 0, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+ CVAR (Int, snd_buffersize, 0, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+ CVAR (String, snd_output, "default", CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+ 
+-#ifndef NO_FMOD
++#if defined(ESP_PLATFORM)
++#define DEF_BACKEND "tab5"
++#elif !defined(NO_FMOD)
+ #define DEF_BACKEND "fmod"
+ #elif !defined(NO_OPENAL)
+ #define DEF_BACKEND "openal"
+@@ -252,6 +254,9 @@ public:
+ 	}
+ };
+ 
++#ifdef ESP_PLATFORM
++extern SoundRenderer *CreateTab5SoundRenderer();
++#endif
+ void I_InitSound ()
+ {
+ 	/* Get command line options: */
+@@ -267,6 +272,13 @@ void I_InitSound ()
+ 	}
+ 
+ 	// This has been extended to allow falling back from FMod to OpenAL and vice versa if the currently active sound system cannot be found.
++#ifdef ESP_PLATFORM
++	if (stricmp(snd_backend, "tab5") == 0)
++	{
++		GSnd = CreateTab5SoundRenderer();
++	}
++	else
++#endif
+ 	if (stricmp(snd_backend, "null") == 0)
+ 	{
+ 		GSnd = new NullSoundRenderer;
+diff --git a/src/thingdef/thingdef_codeptr.cpp b/src/thingdef/thingdef_codeptr.cpp
+index 68bfb5b..99c139a 100644
+--- a/src/thingdef/thingdef_codeptr.cpp
++++ b/src/thingdef/thingdef_codeptr.cpp
+@@ -5516,9 +5516,9 @@ static void DoKill(AActor *killtarget, AActor *self, FName damagetype, int flags
+ 	{
+ 		int dmgFlags = DMG_NO_ARMOR | DMG_NO_FACTOR;
+ 
+-		if (KILS_FOILINVUL)
++		if (flags & KILS_FOILINVUL)
+ 			dmgFlags |= DMG_FOILINVUL;
+-		if (KILS_FOILBUDDHA)
++		if (flags & KILS_FOILBUDDHA)
+ 			dmgFlags |= DMG_FOILBUDDHA;
+ 
+ 	
+diff --git a/src/zzautozend.cpp b/src/zzautozend.cpp
+index 023f8c7..02432e5 100644
+--- a/src/zzautozend.cpp
++++ b/src/zzautozend.cpp
+@@ -60,6 +60,19 @@ void *YRegTail = 0;
+ 
+ #include "doomtype.h"
+ 
++#ifdef ESP_PLATFORM
++#undef SECTION_AREG
++#define SECTION_AREG "zdoom.areg.2"
++#undef SECTION_CREG
++#define SECTION_CREG "zdoom.creg.2"
++#undef SECTION_GREG
++#define SECTION_GREG "zdoom.greg.2"
++#undef SECTION_MREG
++#define SECTION_MREG "zdoom.mreg.2"
++#undef SECTION_YREG
++#define SECTION_YREG "zdoom.yreg.2"
++#endif
++
+ void *ARegTail __attribute__((section(SECTION_AREG))) = 0;
+ void *CRegTail __attribute__((section(SECTION_CREG))) = 0;
+ void *GRegTail __attribute__((section(SECTION_GREG))) = 0;

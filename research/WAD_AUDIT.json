@@ -1,0 +1,238 @@
+[
+  {
+    "file": "research/assets/chex.wad",
+    "bytes": 12361532,
+    "signature": "PWAD",
+    "sha256": "d8eb5277918883f490fb1a4be3c9a8588df2dbaee6dc4beb8df4929148bbffb1",
+    "lumps": 2220,
+    "map_markers": [
+      {
+        "name": "E1M1",
+        "behavior": false
+      },
+      {
+        "name": "E1M2",
+        "behavior": false
+      },
+      {
+        "name": "E1M3",
+        "behavior": false
+      },
+      {
+        "name": "E1M4",
+        "behavior": false
+      },
+      {
+        "name": "E1M5",
+        "behavior": false
+      },
+      {
+        "name": "E1M6",
+        "behavior": false
+      },
+      {
+        "name": "E1M7",
+        "behavior": false
+      },
+      {
+        "name": "E1M8",
+        "behavior": false
+      },
+      {
+        "name": "E1M9",
+        "behavior": false
+      },
+      {
+        "name": "E2M1",
+        "behavior": false
+      },
+      {
+        "name": "E2M2",
+        "behavior": false
+      },
+      {
+        "name": "E2M3",
+        "behavior": false
+      },
+      {
+        "name": "E2M4",
+        "behavior": false
+      },
+      {
+        "name": "E2M5",
+        "behavior": false
+      },
+      {
+        "name": "E2M6",
+        "behavior": false
+      },
+      {
+        "name": "E2M7",
+        "behavior": false
+      },
+      {
+        "name": "E2M8",
+        "behavior": false
+      },
+      {
+        "name": "E2M9",
+        "behavior": false
+      },
+      {
+        "name": "E3M1",
+        "behavior": false
+      },
+      {
+        "name": "E3M2",
+        "behavior": false
+      },
+      {
+        "name": "E3M3",
+        "behavior": false
+      },
+      {
+        "name": "E3M4",
+        "behavior": false
+      },
+      {
+        "name": "E3M5",
+        "behavior": false
+      },
+      {
+        "name": "E3M6",
+        "behavior": false
+      },
+      {
+        "name": "E3M7",
+        "behavior": false
+      },
+      {
+        "name": "E3M8",
+        "behavior": false
+      },
+      {
+        "name": "E3M9",
+        "behavior": false
+      },
+      {
+        "name": "E4M1",
+        "behavior": false
+      },
+      {
+        "name": "E4M2",
+        "behavior": false
+      },
+      {
+        "name": "E4M3",
+        "behavior": false
+      },
+      {
+        "name": "E4M4",
+        "behavior": false
+      },
+      {
+        "name": "E4M5",
+        "behavior": false
+      },
+      {
+        "name": "E4M6",
+        "behavior": false
+      },
+      {
+        "name": "E4M7",
+        "behavior": false
+      },
+      {
+        "name": "E4M8",
+        "behavior": false
+      },
+      {
+        "name": "E4M9",
+        "behavior": false
+      }
+    ],
+    "script_lumps": [],
+    "dehacked": false,
+    "requires_extended_engine": false,
+    "note": "Cabeçalho PWAD não implica arquivo inválido; compatibilidade não é demonstrada apenas por esta inspeção."
+  },
+  {
+    "file": "research/assets/chex3.wad",
+    "bytes": 19191031,
+    "signature": "PWAD",
+    "sha256": "81662798c479458a1b2a2071a223e09501386157be5679fa9ec511c437471dd2",
+    "lumps": 2240,
+    "map_markers": [
+      {
+        "name": "E2M4",
+        "behavior": true
+      },
+      {
+        "name": "E3M4",
+        "behavior": true
+      },
+      {
+        "name": "E1M3",
+        "behavior": true
+      },
+      {
+        "name": "E3M5",
+        "behavior": true
+      },
+      {
+        "name": "E3M3",
+        "behavior": true
+      },
+      {
+        "name": "E2M3",
+        "behavior": true
+      },
+      {
+        "name": "E2M1",
+        "behavior": true
+      },
+      {
+        "name": "E2M2",
+        "behavior": true
+      },
+      {
+        "name": "E1M4",
+        "behavior": true
+      },
+      {
+        "name": "E3M1",
+        "behavior": true
+      },
+      {
+        "name": "E3M2",
+        "behavior": true
+      },
+      {
+        "name": "E1M5",
+        "behavior": true
+      },
+      {
+        "name": "E1M1",
+        "behavior": true
+      },
+      {
+        "name": "E2M5",
+        "behavior": true
+      },
+      {
+        "name": "E1M2",
+        "behavior": true
+      }
+    ],
+    "script_lumps": [
+      "DECORATE",
+      "MAPINFO",
+      "SNDINFO",
+      "ANIMDEFS",
+      "BEHAVIOR"
+    ],
+    "dehacked": false,
+    "requires_extended_engine": true,
+    "note": "Cabeçalho PWAD não implica arquivo inválido; compatibilidade não é demonstrada apenas por esta inspeção."
+  }
+]

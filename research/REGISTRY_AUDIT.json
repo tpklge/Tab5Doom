@@ -1,0 +1,27 @@
+{
+  "A": {
+    "head": "0x4ff1cec0",
+    "tail": "0x4ff1d880",
+    "pointer_slots": 623
+  },
+  "C": {
+    "head": "0x4ff1d884",
+    "tail": "0x4ff1dd18",
+    "pointer_slots": 292
+  },
+  "G": {
+    "head": "0x4ff1dd1c",
+    "tail": "0x4ff1e030",
+    "pointer_slots": 196
+  },
+  "M": {
+    "head": "0x4ff1e034",
+    "tail": "0x4ff1e0c8",
+    "pointer_slots": 36
+  },
+  "Y": {
+    "head": "0x4ff1e0cc",
+    "tail": "0x4ff1e184",
+    "pointer_slots": 45
+  }
+}

@@ -1,0 +1,8 @@
+[scheme:zdoom_psram]
+entries:
+    bss -> extern_ram
+
+[mapping:zdoom_globals]
+archive: libzdoom_core.a
+entries:
+    * (zdoom_psram)

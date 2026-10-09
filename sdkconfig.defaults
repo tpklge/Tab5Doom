@@ -30,3 +30,7 @@ CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
 # Disable Task Watchdog Timer (TWDT) for DOOM WAD loading
 CONFIG_ESP_TASK_WDT_EN=n
 CONFIG_ESP_TASK_WDT_INIT=n
+
+# Freedoom IWAD names exceed FAT 8.3; saves also use long directory names.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255

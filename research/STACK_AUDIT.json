@@ -1,0 +1,67 @@
+{
+  "reported_functions": 10453,
+  "renderer_max_frame_bytes": 2016,
+  "largest_frames": [
+    {
+      "function": "research/zdoom-2.8.1/src/m_png.cpp:903:6:bool M_SaveBitmap(const BYTE*, ESSType, int, int, int, FILE*)",
+      "bytes": 33872,
+      "kind": "static"
+    },
+    {
+      "function": "research/zdoom-2.8.1/src/resourcefiles/ancientzip.cpp:308:5:int ShrinkLoop(unsigned char*, unsigned int, FileReader*, unsigned int)",
+      "bytes": 33104,
+      "kind": "static"
+    },
+    {
+      "function": "research/zdoom-2.8.1/src/p_acs.cpp:6127:5:int DLevelScript::RunScript()",
+      "bytes": 16640,
+      "kind": "static"
+    },
+    {
+      "function": "research/zdoom-2.8.1/src/p_setup.cpp:2691:13:void CreatePackedBlockmap(TArray<int>&, TArray<int>*, int, int)",
+      "bytes": 16480,
+      "kind": "static"
+    },
+    {
+      "function": "research/zdoom-2.8.1/src/nodebuild_utility.cpp:285:6:void FNodeBuilder::GroupSegPlanes()",
+      "bytes": 16480,
+      "kind": "static"
+    },
+    {
+      "function": "research/zdoom-2.8.1/src/resourcefiles/file_wad.cpp:250:6:virtual int FWadFileLump::FillCache()",
+      "bytes": 8384,
+      "kind": "static"
+    },
+    {
+      "function": "research/zdoom-2.8.1/src/md5.cpp:263:1:void Cmd_md5sum(FCommandLine&, APlayerPawn*, int)",
+      "bytes": 8352,
+      "kind": "static"
+    },
+    {
+      "function": "research/zdoom-2.8.1/src/md5.cpp:97:6:void MD5Context::Update(FileReader*, unsigned int)",
+      "bytes": 8224,
+      "kind": "static"
+    },
+    {
+      "function": "research/zdoom-2.8.1/src/textures/jpegtexture.cpp:469:5:virtual int FJPEGTexture::CopyTrueColorPixels(FBitmap*, int, int, int, FCopyInfo*)",
+      "bytes": 5808,
+      "kind": "static"
+    },
+    {
+      "function": "research/zdoom-2.8.1/src/textures/jpegtexture.cpp:367:6:void FJPEGTexture::MakeTexture()",
+      "bytes": 4752,
+      "kind": "static"
+    },
+    {
+      "function": "research/zdoom-2.8.1/src/m_png.cpp:478:6:bool M_ReadIDAT(FileReader*, BYTE*, int, int, int, BYTE, BYTE, BYTE, unsigned int)",
+      "bytes": 4320,
+      "kind": "dynamic"
+    },
+    {
+      "function": "research/zdoom-2.8.1/src/fragglescript/t_prepro.cpp:343:6:void DFsScript::DryRunScript()",
+      "bytes": 4208,
+      "kind": "static"
+    }
+  ],
+  "note": "Individual frames only, not a call-chain bound. Screenshot/ancient ZIP routines still have >32 KiB frames; not exercised in E1M1 trial."
+}
