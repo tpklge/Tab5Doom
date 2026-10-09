@@ -1,4 +1,4 @@
-# Tab5Doom — M5Stack Tab5
+# Tab5Doom2 — Doom II no M5Stack Tab5
 
 Este aparelho usa o display **ST7123**, identificado pela versão 3 do controlador
 integrado em I2C `0x55`. O reset do touch usa P6 do expansor `0x43`; o LCD P4 é
@@ -21,12 +21,20 @@ minúsculos; há compatibilidade com a barra de status, demos e recursos de menu
 dessa edição antiga. O WAD é copiado para PSRAM na inicialização (cerca de cinco
 segundos) para evitar leituras aleatórias lentas do SPIFFS durante o jogo.
 
-Para carregar pelo microSD, coloque o WAD em **`/doom/DOOM.WAD`** no cartão.
-Use FAT32. A busca prioriza a pasta `/doom`, depois a raiz do cartão e por último
-o SPIFFS. Em cada local, a ordem é `doom2.wad`, `doom.wad`, `doom1.wad`,
-aceitando também nomes maiúsculos. Quando o WAD está em `/doom`, configurações
-e saves também ficam nessa pasta. O mod opcional `chiquito.wad` deve ficar
-junto do WAD escolhido. O serial informa o caminho selecionado.
+Esta versão busca exclusivamente **`doom2.wad` no microSD FAT32**. Coloque o
+arquivo em **`/doom/doom2.wad`** (preferencial) ou **`/doom2.wad`** na raiz do
+cartão. O nome `DOOM2.WAD` também é aceito. A pasta `/doom` tem prioridade.
+Quando o WAD está em `/doom`, configurações e saves também ficam nessa pasta;
+quando está na raiz, ficam na raiz. O mod opcional `chiquito.wad` deve ficar
+junto do WAD escolhido. O serial informa o caminho selecionado. Se o cartão
+não montar ou o arquivo não for encontrado, o jogo não inicia e o serial
+mostra o erro. Não há fallback para Doom 1 nem para um WAD no SPIFFS.
+
+A imagem SPIFFS descrita acima é herdada da versão Doom 1 e não é utilizada
+pelo carregador de Doom II. O CMake ainda gera e inclui essa imagem no flash
+completo. Para atualizar somente o aplicativo nesta etapa, com a tabela de
+partições já instalada, use os comandos abaixo.
+O carregamento de Doom II ainda precisa ser validado no aparelho.
 
 O mixer implementa efeitos sonoros a 11025 Hz; música ainda não é sintetizada.
 Os efeitos no alto-falante e a entrada na fase foram confirmados no aparelho.
@@ -38,14 +46,21 @@ O touch ST7123 ainda não está implementado como controle do jogo.
 Histórico de testes e resultados: `TAB5DOOM_PROGRESS.txt` e
 `TAB5DOOM_DISPLAY_INIT_HISTORY.txt`. Logs de diagnóstico ficam em `.debug_logs/`.
 
-Compilar e gravar com ESP-IDF 5.4.4; após cada flash, acompanhar o serial:
+Compilar e gravar com ESP-IDF 5.4.4; após cada flash, acompanhar o serial.
+Use uma pasta de build nova porque o cache copiado pode referenciar o caminho
+anterior do projeto:
 
 ```sh
-idf.py -p /dev/cu.usbmodem101 build flash monitor
+idf.py -B build/doom2 build
+idf.py -B build/doom2 -p <porta> app-flash monitor
 ```
 
-Esse comando também grava o WAD do diretório `spiffs`. Para usar somente o
-microSD e deixar o SPIFFS apagado, após compilar execute:
+`app-flash` atualiza somente o aplicativo. O comando `flash` completo também
+grava o WAD legado do diretório `spiffs`.
+
+Referência histórica da versão Doom 1: para deixar o SPIFFS apagado, a versão
+anterior foi gravada manualmente com os comandos abaixo. Essa operação não é
+necessária para a alteração do carregador de Doom II:
 
 ```sh
 esptool.py --chip esp32p4 -p /dev/cu.usbmodem101 erase_flash

@@ -5,7 +5,6 @@
 #include "esp_cache.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
-#include "esp_spiffs.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -27,7 +26,7 @@ static float g_scale;
 
 static const char *TAG = "DOOM_ESP";
 
-char doomEsp_savedir[32] = "/spiffs";
+char doomEsp_savedir[32] = "/sdcard/doom/";
 
 #define DOOM_W 320
 #define DOOM_H 200
@@ -332,7 +331,7 @@ int p4_doom_get_key(int *pressed, unsigned char *key) {
 #include "doomEsp_sound.h"
 
 void doomEsp_Start(bsp_p4_handles_t bsp_handles, uint16_t *frame_buffer) {
-  ESP_LOGI(TAG, "Starting DOOM on ESP32-P4 with USB Keyboard support...");
+  ESP_LOGI(TAG, "Starting DOOM II on ESP32-P4 with USB Keyboard support...");
 
   global_frame_buffer = frame_buffer;
   g_bsp_handles = bsp_handles;
@@ -363,15 +362,6 @@ void doomEsp_Start(bsp_p4_handles_t bsp_handles, uint16_t *frame_buffer) {
       tab5_keyboard_task, "tab5_keyboard", 4096, NULL, 2, NULL, 0);
   assert(keyboard_created == pdPASS);
 
-  // 1. Initialize SPIFFS Subsystem
-  esp_vfs_spiffs_conf_t spiffs_conf = {.base_path = "/spiffs",
-                                       .partition_label = "spiffs",
-                                       .max_files = 5,
-                                       .format_if_mount_failed = false};
-  if (esp_vfs_spiffs_register(&spiffs_conf) == ESP_OK) {
-    ESP_LOGI(TAG, "SPIFFS mounted OK.");
-  }
-
   // 2. Framebuffer Queue and Hardware PPA
   doom_rb565 = (uint16_t *)heap_caps_aligned_alloc(64, DOOM_W * DOOM_H * 2,
                                                    MALLOC_CAP_INTERNAL);
@@ -399,35 +389,18 @@ void doomEsp_Start(bsp_p4_handles_t bsp_handles, uint16_t *frame_buffer) {
   // Initialize Sound Engine
   doomEsp_SoundInit();
 
-  // 3.5 Initialize SD Card (optional)
+  // 3.5 Load Doom II from the microSD card.
   char *iwad_path = NULL;
-  static char *const flash_iwads[] = {
-      "/spiffs/doom2.wad", "/spiffs/DOOM2.WAD",
-      "/spiffs/doom.wad", "/spiffs/DOOM.WAD",
-      "/spiffs/doom1.wad", "/spiffs/DOOM1.WAD",
-  };
-  for (unsigned i = 0; i < sizeof(flash_iwads) / sizeof(flash_iwads[0]); i++) {
-    FILE *candidate = fopen(flash_iwads[i], "rb");
-    if (candidate) {
-      iwad_path = flash_iwads[i];
-      fclose(candidate);
-      break;
-    }
-  }
   char *pwad_path = NULL;                // optional PWAD
 
   if (bsp_sdcard_mount() == ESP_OK) {
     ESP_LOGI(TAG,
-             "SD Card mounted successfully at /sdcard. Searching for WADs...");
+             "SD Card mounted successfully at /sdcard. Searching for doom2.wad...");
     chdir("/sdcard");
     strcpy(doomEsp_savedir, "/sdcard/");
     static char *const sd_iwads[] = {
         "/sdcard/doom/doom2.wad", "/sdcard/doom/DOOM2.WAD",
-        "/sdcard/doom/doom.wad", "/sdcard/doom/DOOM.WAD",
-        "/sdcard/doom/doom1.wad", "/sdcard/doom/DOOM1.WAD",
         "/sdcard/doom2.wad", "/sdcard/DOOM2.WAD",
-        "/sdcard/doom.wad", "/sdcard/DOOM.WAD",
-        "/sdcard/doom1.wad", "/sdcard/DOOM1.WAD",
     };
     bool found_sd_iwad = false;
     bool in_doom_folder = false;
@@ -437,12 +410,13 @@ void doomEsp_Start(bsp_p4_handles_t bsp_handles, uint16_t *frame_buffer) {
       fclose(candidate);
       iwad_path = sd_iwads[i];
       found_sd_iwad = true;
-      in_doom_folder = i < 6;
+      in_doom_folder = i < 2;
       ESP_LOGI(TAG, "Found SD IWAD: %s", iwad_path);
       break;
     }
     if (!found_sd_iwad) {
-      ESP_LOGW(TAG, "No base IWAD in SD /doom or root. Using internal Flash.");
+      ESP_LOGE(TAG, "doom2.wad not found. Place it in /doom or the root of the microSD card.");
+      return;
     } else {
       // Keep optional mods alongside the selected SD IWAD.
       char *const mods_folder[] = {"/sdcard/doom/chiquito.wad", "/sdcard/doom/CHIQUITO.WAD"};
@@ -462,18 +436,17 @@ void doomEsp_Start(bsp_p4_handles_t bsp_handles, uint16_t *frame_buffer) {
       }
     }
   } else {
-    ESP_LOGW(
+    ESP_LOGE(
         TAG,
-        "No SD card detected (or mount failed). Fallback to internal SPIFFS.");
-    chdir("/spiffs");
-    strcpy(doomEsp_savedir, "/spiffs/");
+        "Could not mount the microSD card. DOOM II requires doom2.wad on microSD.");
+    return;
   }
 
   if (!iwad_path) {
-    ESP_LOGE(TAG, "No readable IWAD found in SPIFFS or SD");
+    ESP_LOGE(TAG, "No readable doom2.wad found on microSD");
     return;
   }
-  ESP_LOGI(TAG, "Starting DOOM. IWAD: %s, PWAD: %s", iwad_path,
+  ESP_LOGI(TAG, "Starting DOOM II. IWAD: %s, PWAD: %s", iwad_path,
            pwad_path ? pwad_path : "None");
 
   // 4. Boot DOOM

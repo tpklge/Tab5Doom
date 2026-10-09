@@ -1,3 +1,17 @@
+CARREGADOR DOOM II NO MICROSD — 2026-10-05
+---------------------------------------
+Base de trabalho renomeada de Tab5Doom1 para Tab5Doom2.
+Carregador restrito a /sdcard/doom/doom2.wad e /sdcard/doom2.wad,
+aceitando também DOOM2.WAD, com prioridade para a pasta /doom.
+Removidas seleção de doom.wad/doom1.wad, montagem SPIFFS e fallback de IWAD
+na flash. Sem cartão montado ou sem doom2.wad, registra erro e não inicia.
+Configurações, saves e mod opcional continuam junto do IWAD selecionado.
+Build completo validado com ESP-IDF 5.4.4 para esp32p4, usando diretório novo
+para não reutilizar o cache copiado. App cabe na partição de 2 MiB.
+Log: .debug_logs/doom2-loader-build.log. Nenhum flash realizado nesta etapa.
+Esta alteração não confirma execução de Doom II no aparelho; WAD e teste
+de hardware ainda pendentes. Os registros abaixo são da versão anterior.
+
 FLASH TOTALMENTE APAGADA E REGRAVADA SEM SPIFFS — 2026-10-02
 -------------------------------------------------------
 Pedido explícito do usuário: apagar tudo, incluindo SPIFFS.
